@@ -1,0 +1,52 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "youtube-pipeline"
+version = "0.1.0"
+description = "Korean faceless YouTube content semi-automated production pipeline"
+requires-python = ">=3.10"
+authors = [
+    {name = "YouTube Pipeline Team"}
+]
+
+dependencies = [
+    "typer[all]>=0.9.0",
+    "pydantic>=2.0",
+    "httpx>=0.24.0",
+    "aiosqlite>=0.19.0",
+    "jinja2>=3.1.0",
+    "edge-tts>=6.1.0",
+    "pillow>=10.0.0",
+    "python-dotenv>=1.0.0",
+    "pyyaml>=6.0.0",
+    "rich>=13.0.0",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7.4.0",
+    "pytest-asyncio>=0.21.0",
+]
+
+[project.scripts]
+yt = "app.cli:app"
+
+[tool.setuptools]
+package-dir = {"" = "."}
+packages = ["app", "tests"]
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+asyncio_mode = "auto"
+filterwarnings = [
+    "ignore::DeprecationWarning",
+]
+
+[tool.black]
+line-length = 120
+
+[tool.ruff]
+line-length = 120
+target-version = "py310"

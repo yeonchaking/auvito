@@ -1,0 +1,105 @@
+llm_routing:
+  generate_script: anthropic/claude-sonnet
+  generate_storyboard: anthropic/claude-sonnet
+  generate_thumbnail_copy: openai/gpt-4o-mini
+  generate_metadata: openai/gpt-4o-mini
+  benchmark_analysis: anthropic/claude-sonnet
+
+audio:
+  tts_provider: edge_tts
+  tts_voice: ko-KR-SunHiNeural
+  speaking_rate: 1.0
+  audio_format: wav
+  sample_rate_hz: 24000
+
+stt:
+  provider: openai
+  model: gpt-4o-transcribe
+  fallback_model: whisper-1
+  local_model: faster-whisper/large-v3
+
+image:
+  provider: openai
+  model: gpt-image-1.5
+
+video:
+  provider: openai
+  model: sora-2
+
+render:
+  width: 1920
+  height: 1080
+  fps: 30
+  video_codec: h264
+  audio_codec: aac
+  default_motion: ken_burns_slow
+  default_transition: crossfade
+
+thumbnail:
+  width: 1280
+  height: 720
+  font: NanumSquareRoundEB
+  text_color: "#FFFFFF"
+  stroke_color: "#000000"
+
+publish:
+  default_privacy: private
+  category_id: 27
+  default_language: ko
+
+retry:
+  max_attempts: 3
+  backoff_base_s: 2
+
+hitl:
+  mode: conditional
+  checkpoints:
+    script: required
+    storyboard: required
+    assets_over_usd: 3.0
+    thumbnail: optional
+    upload: required
+
+cost_guardrail:
+  currency: USD
+  estimation:
+    unknown_price: fail
+    pessimistic_multiplier: 1.25
+  budgets:
+    run_soft_cap_usd: 10.00
+    run_hard_cap_usd: 15.00
+    reserve_ratio: 0.15
+  per_stage:
+    benchmark:
+      hard_cap_usd: 0.50
+    script:
+      hard_cap_usd: 0.80
+    voice:
+      hard_cap_usd: 1.50
+    storyboard:
+      hard_cap_usd: 0.80
+    assets:
+      hard_cap_usd: 8.00
+      max_image_jobs: 30
+      max_video_jobs: 6
+      max_video_seconds: 18
+    render:
+      hard_cap_usd: 0.30
+    thumbnail:
+      hard_cap_usd: 0.60
+    upload:
+      hard_cap_usd: 0.10
+  provider_limits:
+    openai:
+      monthly_cap_usd: 100.00
+      models:
+        gpt-4o-transcribe:
+          max_calls_per_run: 3
+        gpt-image-1.5:
+          max_output_images_per_run: 20
+        sora-2:
+          max_seconds_per_run: 12
+  actions:
+    on_soft_cap: warn
+    on_hard_cap: fail
+    on_retry_charge_risk: require_idempotency_key
