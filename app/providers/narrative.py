@@ -495,18 +495,244 @@ class AnthropicNarrativeProvider:
     async def estimate_storyboard_cost(
         self, req: StoryboardRequest, ctx: ProviderCallContext
     ) -> CostEstimate:
-        """Estimate storyboard generation cost (Phase 2)."""
+        """Estimate storyboard generation cost.
+
+        Estimate: 1 Claude Sonnet call with script + narration context.
+        Input: ~3000 tokens, Output: ~2000 tokens
+        """
+        input_tokens_estimate = 3000
+        output_tokens_estimate = 2000
+
+        # Sonnet pricing
+        input_cost = Decimal("3") / Decimal("1000000") * input_tokens_estimate
+        output_cost = Decimal("15") / Decimal("1000000") * output_tokens_estimate
+        total = (input_cost + output_cost) * Decimal("1.25")  # pessimistic multiplier
+
         return CostEstimate(
-            estimated_cost_usd=Decimal("0.50"),
-            confidence="low",
-            reasoning="Storyboard generation not yet implemented",
+            estimated_cost_usd=total,
+            confidence="medium",
+            reasoning="Estimate based on single Claude Sonnet call with script + narration context",
         )
 
     async def generate_storyboard(
-        self, req: StoryboardRequest, ctx: ProviderCallContext
+        self,
+        req: StoryboardRequest,
+        ctx: ProviderCallContext,
+        script_contract: Optional[Any] = None,
+        narration_contract: Optional[Any] = None,
+        aspect_ratio: str = "16:9",
     ) -> StoryboardContract:
-        """Generate storyboard (Phase 2 - stub)."""
-        raise NotImplementedError("Storyboard generation will be implemented in Stage 4")
+        """Generate storyboard from script and narration contracts.
+
+        Creates visual shot list with timing aligned to narration clips.
+
+        Args:
+            req: Storyboard generation request
+            ctx: Provider call context
+            script_contract: ScriptContract from Stage 2
+            narration_contract: NarrationContract from Stage 3
+            aspect_ratio: Target aspect ratio (default: 16:9)
+
+        Returns:
+            StoryboardContract with shots
+
+        Raises:
+            ValueError: If generation fails or validation error
+        """
+        if not self.api_key:
+            logger.warning("No ANTHROPIC_API_KEY provided, generating fallback storyboard")
+            return self._create_fallback_storyboard(
+                script_contract, narration_contract, ctx, aspect_ratio
+            )
+
+        if not script_contract or not narration_contract:
+            raise ValueError(
+                "script_contract and narration_contract are required for storyboard generation"
+            )
+
+        llm_calls_dir = Path(self.workspace_root) / "projects" / ctx.run_id / "logs" / "llm_calls"
+        llm_calls_dir.mkdir(parents=True, exist_ok=True)
+
+        try:
+            # Call director role
+            storyboard_data = await self._call_director(
+                script_contract,
+                narration_contract,
+                aspect_ratio,
+                req.niche,
+                llm_calls_dir,
+            )
+
+            # Create StoryboardContract
+            storyboard_contract = self._create_storyboard_contract(
+                storyboard_data,
+                script_contract,
+                narration_contract,
+                ctx,
+                aspect_ratio,
+            )
+
+            logger.info(
+                "Storyboard generation completed",
+                storyboard_id=storyboard_contract.contract_id,
+                shot_count=len(storyboard_contract.shots),
+            )
+
+            return storyboard_contract
+
+        except Exception as e:
+            logger.error(
+                "Storyboard generation failed",
+                error=str(e),
+                checkpoint_id=ctx.idempotency_key,
+            )
+            raise ValueError(f"Storyboard generation failed: {str(e)}") from e
+
+    async def _call_director(
+        self,
+        script_contract: Any,
+        narration_contract: Any,
+        aspect_ratio: str,
+        niche: str,
+        llm_calls_dir: Path,
+    ) -> dict:
+        """Call director role to create storyboard.
+
+        Args:
+            script_contract: ScriptContract
+            narration_contract: NarrationContract
+            aspect_ratio: Target aspect ratio
+            niche: Project niche
+            llm_calls_dir: Directory to save LLM calls
+
+        Returns:
+            Storyboard data dictionary
+        """
+        prompt = self.prompt_engine.render(
+            "storyboard/v1_director.txt",
+            {
+                "niche": niche,
+                "total_duration_sec": narration_contract.total_duration_sec,
+                "aspect_ratio": aspect_ratio,
+                "script_segments": script_contract.segments,
+                "narration_clips": narration_contract.clips,
+            },
+        )
+
+        response = await self._call_claude(prompt, llm_calls_dir, role="director")
+        return response
+
+    def _create_storyboard_contract(
+        self,
+        storyboard_data: dict,
+        script_contract: Any,
+        narration_contract: Any,
+        ctx: ProviderCallContext,
+        aspect_ratio: str,
+    ) -> StoryboardContract:
+        """Create StoryboardContract from storyboard data.
+
+        Args:
+            storyboard_data: Storyboard data from LLM
+            script_contract: ScriptContract
+            narration_contract: NarrationContract
+            ctx: Provider context
+            aspect_ratio: Target aspect ratio
+
+        Returns:
+            StoryboardContract with validated shots
+        """
+        from app.domain.contracts import StoryboardShot
+
+        shots = []
+        for shot_data in storyboard_data.get("shots", []):
+            shot = StoryboardShot(
+                shot_id=shot_data.get("shot_id", f"shot_{len(shots) + 1:03d}"),
+                order=shot_data.get("order", len(shots) + 1),
+                start_sec=float(shot_data.get("start_sec", 0.0)),
+                end_sec=float(shot_data.get("end_sec", 0.0)),
+                narration_clip_ids=shot_data.get("narration_clip_ids", []),
+                visual_kind=shot_data.get("visual_kind", "image"),
+                prompt=shot_data.get("prompt", ""),
+                motion_hint=shot_data.get("motion_hint", None),
+            )
+            shots.append(shot)
+
+        contract_id = f"sb_{hashlib.md5(f'{ctx.run_id}{ctx.stage_run_id}'.encode()).hexdigest()[:8]}"
+
+        contract = StoryboardContract(
+            contract_type="storyboard",
+            schema_version="1.0",
+            contract_id=contract_id,
+            run_id=ctx.run_id,
+            generated_by_stage_run_id=ctx.stage_run_id,
+            created_at=datetime.utcnow(),
+            script_id=script_contract.contract_id,
+            narration_id=narration_contract.contract_id,
+            aspect_ratio=aspect_ratio,
+            total_duration_sec=narration_contract.total_duration_sec,
+            shots=shots,
+        )
+
+        return contract
+
+    def _create_fallback_storyboard(
+        self,
+        script_contract: Any,
+        narration_contract: Any,
+        ctx: ProviderCallContext,
+        aspect_ratio: str,
+    ) -> StoryboardContract:
+        """Create a basic fallback storyboard when API key is missing.
+
+        Creates one shot per narration clip, aligned to clip timing.
+
+        Args:
+            script_contract: ScriptContract
+            narration_contract: NarrationContract
+            ctx: Provider context
+            aspect_ratio: Target aspect ratio
+
+        Returns:
+            Minimal StoryboardContract
+        """
+        from app.domain.contracts import StoryboardShot
+
+        logger.warning("Creating fallback storyboard due to missing API key")
+
+        shots = []
+        motion_hints = ["static", "slow_zoom_in", "ken_burns_slow", "pan_left"]
+
+        for i, clip in enumerate(narration_contract.clips):
+            motion_hint = motion_hints[i % len(motion_hints)]
+
+            shot = StoryboardShot(
+                shot_id=f"shot_{i+1:03d}",
+                order=i + 1,
+                start_sec=clip.start_sec,
+                end_sec=clip.end_sec,
+                narration_clip_ids=[clip.clip_id],
+                visual_kind="image" if i % 4 < 3 else "video",
+                prompt=f"Visual content for: {clip.text[:100]}. Professional and engaging.",
+                motion_hint=motion_hint,
+            )
+            shots.append(shot)
+
+        contract_id = f"sb_{hashlib.md5(f'{ctx.run_id}_fallback'.encode()).hexdigest()[:8]}"
+
+        return StoryboardContract(
+            contract_type="storyboard",
+            schema_version="1.0",
+            contract_id=contract_id,
+            run_id=ctx.run_id,
+            generated_by_stage_run_id=ctx.stage_run_id,
+            created_at=datetime.utcnow(),
+            script_id=script_contract.contract_id,
+            narration_id=narration_contract.contract_id,
+            aspect_ratio=aspect_ratio,
+            total_duration_sec=narration_contract.total_duration_sec,
+            shots=shots,
+        )
 
     async def estimate_thumbnail_copy_cost(
         self, req: ThumbnailCopyRequest, ctx: ProviderCallContext
