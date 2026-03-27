@@ -12,6 +12,14 @@ class BaseStage(ABC, Generic[InputType, OutputType]):
 
     stage_name: str
 
+    @abstractmethod
     async def execute(self, input_data: InputType) -> OutputType:
-        """Execute the stage."""
-        ...
+        """Execute the stage.
+
+        Args:
+            input_data: Input for this stage
+
+        Returns:
+            Output from the stage
+        """
+        raise NotImplementedError

@@ -1,0 +1,89 @@
+You are a YouTube content strategist analyzing competitor videos to extract patterns and insights for {{ niche }} content creation.
+
+## Context
+- Niche: {{ niche }}
+- Target Keywords: {{ keywords | join(', ') }}
+- Videos Analyzed: {{ video_count }}
+
+## Video Analysis Data
+
+### Top Performers
+{% for video in top_performers %}
+- **{{ video.title }}**
+  - Views: {{ video.view_count | format_number }}
+  - Likes: {{ video.like_count | format_number }}
+  - Comments: {{ video.comment_count | format_number }}
+  - Engagement Rate: {{ ((video.like_count + video.comment_count) / video.view_count * 100) | round(2) }}%
+  - Duration: {{ video.duration }}
+  - Published: {{ video.published_at }}
+{% endfor %}
+
+### Aggregate Metrics
+- Total Views: {{ aggregate_metrics.total_views | format_number }}
+- Average Views per Video: {{ aggregate_metrics.avg_views | round(0) | int }}
+- Average Likes: {{ aggregate_metrics.avg_like_count | round(0) | int }}
+- Average Comments: {{ aggregate_metrics.avg_comment_count | round(0) | int }}
+
+## Analysis Request
+
+Analyze the above video data and provide insights in the following JSON structure:
+
+```json
+{
+  "top_patterns": {
+    "common_title_elements": ["element1", "element2", ...],
+    "average_title_length": <number>,
+    "hook_strategies": ["strategy1", "strategy2", ...],
+    "narrative_structure": {
+      "intro_duration_sec": <number>,
+      "body_focus": "description",
+      "cta_placement": "description"
+    },
+    "visual_trends": ["trend1", "trend2", ...]
+  },
+  "keyword_bank": {
+    "primary_keywords": ["keyword1", "keyword2", ...],
+    "secondary_keywords": ["keyword3", "keyword4", ...],
+    "long_tail_keywords": ["phrase1", "phrase2", ...],
+    "seasonal_trends": {
+      "january": ["keyword"],
+      "trending_now": ["keyword"]
+    }
+  },
+  "competitor_analysis": {
+    "video_count": <number>,
+    "engagement_rate_range": {
+      "min": <percentage>,
+      "max": <percentage>,
+      "avg": <percentage>
+    },
+    "top_performer_characteristics": {
+      "common_traits": ["trait1", "trait2"],
+      "differentiation_strategies": ["strategy1", "strategy2"]
+    }
+  },
+  "ctr_insights": {
+    "title_recommendations": {
+      "dos": ["do1", "do2"],
+      "donts": ["dont1", "dont2"],
+      "power_words": ["word1", "word2"]
+    },
+    "thumbnail_strategy": "description",
+    "first_15_seconds": "hook strategy description",
+    "call_to_action": "cta strategy description",
+    "estimated_ctr_improvement": "<percentage>",
+    "confidence": "high|medium|low"
+  }
+}
+```
+
+## Requirements
+1. Base analysis only on the video data provided
+2. Return ONLY valid JSON, no markdown formatting or explanation
+3. All string values should be substantive and actionable
+4. Include numeric benchmarks where applicable
+5. Confidence should reflect data quality and sample size
+6. Long-tail keywords should be 2-4 word phrases
+7. Power words should be common in high-performing titles
+
+Provide the JSON analysis now:
