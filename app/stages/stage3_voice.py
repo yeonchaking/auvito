@@ -28,6 +28,7 @@ class VoiceStageInput:
         self,
         script_contract: ScriptContract,
         workspace_root: str,
+        project_slug: str,
         openai_api_key: Optional[str] = None,
         tts_voice: str = "ko-KR-SunHiNeural",
         speaking_rate: float = 1.0,
@@ -37,12 +38,14 @@ class VoiceStageInput:
         Args:
             script_contract: ScriptContract from Stage 2
             workspace_root: Workspace root directory
+            project_slug: Project slug (used for output directory naming)
             openai_api_key: Optional OpenAI API key for STT
             tts_voice: TTS voice ID
             speaking_rate: TTS speaking rate (0.5-2.0)
         """
         self.script_contract = script_contract
         self.workspace_root = workspace_root
+        self.project_slug = project_slug
         self.openai_api_key = openai_api_key
         self.tts_voice = tts_voice
         self.speaking_rate = speaking_rate
@@ -91,7 +94,7 @@ class VoiceStage(BaseStage):
             ValueError: If narration generation fails
         """
         script_contract = input_data.script_contract
-        workspace = Path(input_data.workspace_root) / "projects" / script_contract.run_id
+        workspace = Path(input_data.workspace_root) / "projects" / input_data.project_slug
         voice_dir = workspace / "03_voice"
         voice_dir.mkdir(parents=True, exist_ok=True)
 
@@ -285,12 +288,13 @@ class VoiceStage(BaseStage):
         if not clip_files:
             raise ValueError("No audio clips to merge")
 
-        # Create concat demuxer file
+        # Create concat demuxer file (use absolute paths so ffmpeg resolves correctly)
         concat_file = Path(output_path).parent / "concat_list.txt"
         try:
             with open(concat_file, "w", encoding="utf-8") as f:
                 for clip_file in clip_files:
-                    f.write(f"file '{clip_file}'\n")
+                    abs_path = str(Path(clip_file).resolve())
+                    f.write(f"file '{abs_path}'\n")
 
             # Use ffmpeg concat demuxer
             import subprocess

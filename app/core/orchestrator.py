@@ -355,6 +355,7 @@ class PipelineOrchestrator:
                 input_data = VoiceStageInput(
                     script_contract=script_contract,
                     workspace_root=workspace_root,
+                    project_slug=project.slug,
                     openai_api_key=self.settings.openai_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
