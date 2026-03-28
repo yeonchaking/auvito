@@ -33,6 +33,7 @@ class AppContainer:
             self.db,
             self.cost_guardrail,
             self.config,
+            settings=self.settings,
         )
         await self.orchestrator.initialize()
 

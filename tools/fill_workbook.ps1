@@ -1,12 +1,12 @@
 ﻿param(
-    [string]$TemplatePath = "C:\Users\AM11D\Desktop\문서작업\통합문서_템플릿.xlsx",
+    [string]$TemplatePath = "C:\Users\AM11D\Documents\Claude\Projects\유튜브자동화\youtube_pipeline\tools\generated\통합문서_auvito.xlsx",
     [string]$OutputPath = ""
 )
 
 $ErrorActionPreference = "Stop"
 
 if ([string]::IsNullOrWhiteSpace($OutputPath)) {
-    $OutputPath = Join-Path $PSScriptRoot "..\통합문서_유튜브파이프라인_초안.xlsx"
+    $OutputPath = $TemplatePath
 }
 
 $sheetPayloads = @{
@@ -32,7 +32,8 @@ $sheetPayloads = @{
         StartRow = 3
         Rows = @(
             @("v0.1", "2026-03-28", "AM11D/Codex", "신규", "현재 프로젝트 코드와 종합 기술 설계서를 기준으로 통합문서 초안 작성", "전체 문서", ""),
-            @("v0.2", "2026-03-28", "AM11D/Codex", "수정", "예시성/창작성 데이터 제거 후 프로젝트와 설계서에 있는 사실만 반영하도록 재정리", "프로젝트개요, 기능정의, 요구사항, 일정, 리스크", "")
+            @("v0.2", "2026-03-28", "AM11D/Codex", "수정", "예시성/창작성 데이터 제거 후 프로젝트와 설계서에 있는 사실만 반영하도록 재정리", "프로젝트개요, 기능정의, 요구사항, 일정, 리스크", ""),
+            @("v0.3", "2026-03-28", "AM11D/Codex", "수정", "Stage 6 렌더 일부 구현과 FFmpeg 임시경로 변경 사항을 현재 코드 기준으로 반영", "기능정의, 요구사항, 이슈·리스크, 테스트케이스", "")
         )
     }
     "기능정의 - 상세" = @{
@@ -44,7 +45,7 @@ $sheetPayloads = @{
             @("F-GOV-001", "거버넌스", "승인/비용/품질", "ApprovalService / CostGuardrail / QualityGateRunner", "승인 체크포인트, 비용 가드레일, 자동 품질 검증", "app/core/approval_service.py, app/core/cost_guardrail.py, app/core/quality_gate.py에 관련 코드가 존재", "CLI 사용자", "", "일부구현", "SCR-004", "REQ-GOV-001, REQ-COST-001", "", "현재 코드 기준"),
             @("F-BENCH-001", "Stage", "벤치마킹", "BenchmarkReport 계약과 stage/provider 인터페이스", "BenchmarkReport 계약, ResearchProvider, benchmark stage 골격", "app/domain/contracts.py, app/providers/research.py, app/stages/stage1_benchmark.py 기준", "CLI 사용자", "", "골격구현", "SCR-003", "REQ-BENCH-001", "", "현재 코드 기준"),
             @("F-SCRIPT-001", "Stage", "대본", "ScriptContract와 script 승인 게이트", "ScriptContract 계약, NarrativeProvider의 script 메서드, script checkpoint 설계", "app/domain/contracts.py, app/providers/narrative.py, app/stages/stage2_script.py, app/config/default.yaml 기준", "CLI 사용자", "", "골격구현", "SCR-004", "REQ-SCRIPT-001, REQ-GOV-001", "", "현재 코드 기준"),
-            @("F-MEDIA-001", "Stage", "음성/스토리보드/에셋/렌더", "Narration/Storyboard/Asset/Render 계약 체인", "NarrationContract, StoryboardContract, AssetManifestContract, RenderPlanContract와 관련 stage/service/provider 인터페이스", "app/domain/contracts.py, app/providers/*.py, app/stages/stage3_voice.py ~ stage6_render.py 기준", "CLI 사용자", "", "골격구현", "SCR-005, SCR-006", "REQ-VOICE-001, REQ-VISUAL-001", "", "현재 코드 기준")
+            @("F-MEDIA-001", "Stage", "음성/스토리보드/에셋/렌더", "Narration/Storyboard/Asset/Render 계약 체인", "NarrationContract, StoryboardContract, AssetManifestContract, RenderPlanContract와 Stage 6 렌더 코드", "app/domain/contracts.py, app/providers/*.py, app/services/ffmpeg_service.py, app/services/pillow_service.py, app/stages/stage3_voice.py ~ stage6_render.py 기준. Stage 3~5는 골격이고 Stage 6 렌더는 일부 구현 상태", "CLI 사용자", "", "일부구현", "SCR-005, SCR-006", "REQ-VOICE-001, REQ-VISUAL-001", "", "현재 코드 기준")
         )
     }
     "화면기능매핑테이블" = @{
@@ -56,7 +57,7 @@ $sheetPayloads = @{
             @("SCR-003", "작업공간", "01_benchmark", "", "", "", "벤치마킹 산출물 검토", "산출물", "BenchmarkReport와 관련 산출물을 확인할 때", "benchmark_report.json / md / keyword bank", "F-BENCH-001", "REQ-BENCH-001", "", "설계서 워크스페이스 구조 기준"),
             @("SCR-004", "CLI", "승인", "검토", "", "", "승인 명령 및 checkpoint 처리", "명령", "approval_id 기준 승인/거절을 수행할 때", "yt approvals list / approve / reject", "F-GOV-001, F-SCRIPT-001", "REQ-GOV-001", "", "현재 CLI와 설계서 기준"),
             @("SCR-005", "작업공간", "03_voice", "", "", "", "음성/자막 산출물 검토", "산출물", "NarrationContract와 narration/subtitles 산출물을 확인할 때", "narration.wav / subtitles.srt / narration_contract.json", "F-MEDIA-001", "REQ-VOICE-001", "", "설계서 워크스페이스 구조 기준"),
-            @("SCR-006", "작업공간", "04_storyboard", "05_assets", "06_render", "", "스토리보드/에셋/렌더 산출물 검토", "산출물", "Storyboard, AssetManifest, RenderPlan과 draft 결과를 확인할 때", "storyboard_contract.json / asset_manifest.json / render_plan.json / draft.mp4", "F-MEDIA-001", "REQ-VISUAL-001", "", "설계서 워크스페이스 구조 기준")
+            @("SCR-006", "작업공간", "04_storyboard", "05_assets", "06_render", "", "스토리보드/에셋/렌더 산출물 검토", "산출물", "Storyboard, AssetManifest, RenderPlan과 draft 결과를 확인할 때", "storyboard_contract.json / asset_manifest.json / render_plan.json / draft.mp4", "F-MEDIA-001", "REQ-VISUAL-001", "", "render_plan.json / draft.mp4는 현재 Stage 6 코드 기준")
         )
     }
     "요구사항정의서" = @{
@@ -69,7 +70,7 @@ $sheetPayloads = @{
             @("REQ-BENCH-001", "기능", "벤치마킹 단계는 BenchmarkReport 계약을 사용", "", "F-BENCH-001", "SCR-003", "BenchmarkReport 계약, ResearchProvider 인터페이스, benchmark stage 파일이 현재 프로젝트에 존재한다.", "app/domain/contracts.py, app/providers/research.py, app/stages/stage1_benchmark.py", "벤치마킹 출력 계약과 stage/provider 골격이 존재", "", "파이프라인", "골격구현", ""),
             @("REQ-SCRIPT-001", "기능", "대본 단계는 ScriptContract 계약을 사용", "", "F-SCRIPT-001", "SCR-004", "ScriptContract 계약과 NarrativeProvider의 script 관련 인터페이스가 존재하고 script checkpoint 설계가 문서와 설정에 반영되어 있다.", "app/domain/contracts.py, app/providers/narrative.py, app/config/default.yaml", "대본 계약과 승인 체크포인트 정의 존재", "", "파이프라인", "골격구현", ""),
             @("REQ-VOICE-001", "기능", "음성 단계는 NarrationContract와 자막 산출물을 사용", "", "F-MEDIA-001", "SCR-005", "NarrationContract, TTS/STT provider 인터페이스, voice stage 파일이 현재 프로젝트에 존재한다.", "app/domain/contracts.py, app/providers/tts.py, app/providers/stt.py, app/stages/stage3_voice.py", "나레이션 계약과 관련 provider/stage 골격이 존재", "", "파이프라인", "골격구현", ""),
-            @("REQ-VISUAL-001", "기능", "스토리보드/에셋/렌더 단계는 계약 기반 체인을 사용", "", "F-MEDIA-001", "SCR-006", "StoryboardContract, AssetManifestContract, RenderPlanContract와 관련 stage/service/provider 파일이 현재 프로젝트에 존재한다.", "app/domain/contracts.py, app/providers/asset.py, app/services/ffmpeg_service.py, app/services/pillow_service.py, app/stages/stage4_storyboard.py ~ stage6_render.py", "스토리보드/에셋/렌더 계약과 골격 파일 존재", "", "파이프라인", "골격구현", ""),
+            @("REQ-VISUAL-001", "기능", "스토리보드/에셋/렌더 단계는 계약 기반 체인을 사용", "", "F-MEDIA-001", "SCR-006", "StoryboardContract, AssetManifestContract, RenderPlanContract가 정의되어 있고 Stage 6에는 FFmpeg 기반 draft 렌더 코드가 존재한다.", "app/domain/contracts.py, app/providers/asset.py, app/services/ffmpeg_service.py, app/services/pillow_service.py, app/stages/stage4_storyboard.py ~ stage6_render.py", "Stage 4~5 관련 파일 존재, Stage 6은 draft.mp4 / render_plan.json 생성 로직 존재", "", "파이프라인", "일부구현", ""),
             @("REQ-COST-001", "비기능", "비용 통제 설정과 검사 로직 존재", "", "F-EXEC-001, F-GOV-001", "SCR-002", "default.yaml에는 stage별 hard cap과 provider limit가 정의되어 있고 CostGuardrail 클래스가 이를 읽는다.", "app/config/default.yaml, app/core/cost_guardrail.py", "cost_guardrail 설정과 검사 코드 존재", "", "파이프라인", "일부구현", "")
         )
     }
@@ -89,7 +90,7 @@ $sheetPayloads = @{
             @("RISK-001", "현재 코드", "pydantic-settings 의존성 누락", "app/settings.py는 pydantic_settings.BaseSettings를 import하지만 pyproject.toml 기본 의존성에는 pydantic-settings가 없다.", "", "", "미정", "", "", "app/settings.py, pyproject.toml"),
             @("RISK-002", "현재 코드", "DB init 중복 호출", "AppContainer.init()와 PipelineOrchestrator.initialize()가 모두 self.db.init()를 호출한다.", "", "", "미정", "", "", "app/main.py, app/core/orchestrator.py"),
             @("RISK-003", "현재 코드", "Artifact 저장/조회 형식 불일치", "Artifact 모델의 list/dict 필드와 SQLite 저장/조회 형식이 직접 대응하지 않아 조회 시 불일치 가능성이 있다.", "", "", "미정", "", "", "app/domain/models.py, app/storage/sqlite.py, app/core/artifact_registry.py"),
-            @("RISK-004", "현재 코드", "Windows 환경과 맞지 않는 /tmp 경로 사용", "FFmpegService와 fake provider 일부가 /tmp 경로를 사용한다.", "", "", "미정", "", "", "app/services/ffmpeg_service.py, app/providers/fake.py")
+            @("RISK-004", "현재 코드", "fake provider 일부의 /tmp 경로 사용", "FFmpegService는 tempfile로 전환되었으나 fake provider 일부는 여전히 /tmp 경로를 사용한다.", "", "", "미정", "", "", "app/services/ffmpeg_service.py, app/providers/fake.py")
         )
     }
     "테스트케이스" = @{
@@ -101,7 +102,7 @@ $sheetPayloads = @{
             @("TC-003", "REQ-GOV-001", "SCR-004", "approval 상태 전이 확인", "approval_id 존재", "yt approve <approval_id> 또는 yt reject <approval_id>", "approval 상태가 APPROVED 또는 REJECTED로 저장된다.", "", "", "설계서 검증 방법 3번 기반"),
             @("TC-004", "REQ-BENCH-001", "SCR-003", "BenchmarkReport 계약 생성 확인", "benchmark stage 실행 가능 상태", "yt stage run <slug> benchmark", "BenchmarkReport contract 파일과 quality gate 검증 대상이 생성된다.", "", "", "설계서 검증 방법 2번 기반"),
             @("TC-005", "REQ-VOICE-001", "SCR-005", "NarrationContract와 자막 산출물 생성 확인", "voice stage 실행 가능 상태", "voice stage 실행", "narration.wav, subtitles.srt, NarrationContract가 생성된다.", "", "", "설계서 7장 stage 설명 기반"),
-            @("TC-006", "REQ-VISUAL-001", "SCR-006", "assets resume와 draft render 산출 확인", "asset checkpoint 또는 render 입력 계약 존재", "assets / render stage 실행", "resume 규칙에 따라 재사용 또는 재개되고 render 결과 산출물이 생성된다.", "", "", "설계서 검증 방법 7,10번 기반")
+            @("TC-006", "REQ-VISUAL-001", "SCR-006", "RenderStage 입력 계약 기반 draft 산출 확인", "NarrationContract, StoryboardContract, AssetManifestContract와 출력 경로가 준비됨", "RenderStage execute 호출", "06_render에 render_plan.json과 draft.mp4가 생성되고 RenderPlanContract가 반환된다.", "", "", "app/stages/stage6_render.py 현재 코드 기준")
         )
     }
 }
