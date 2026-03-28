@@ -102,7 +102,7 @@ class AnthropicNarrativeProvider:
     """Anthropic Claude-based narrative provider implementation."""
 
     API_BASE = "https://api.anthropic.com/v1"
-    MODEL = "claude-sonnet-4-20250514"
+    MODEL = "claude-sonnet-4-6"
 
     def __init__(self, api_key: Optional[str] = None, workspace_root: Optional[str] = None):
         """Initialize Anthropic narrative provider.
@@ -168,7 +168,7 @@ class AnthropicNarrativeProvider:
         try:
             # Load benchmark report
             benchmark_path = Path(req.benchmark_report_path)
-            with open(benchmark_path) as f:
+            with open(benchmark_path, encoding="utf-8") as f:
                 benchmark_report = json.load(f)
 
             # Step 1: Strategist
@@ -207,9 +207,12 @@ class AnthropicNarrativeProvider:
             return script_contract
 
         except Exception as e:
+            import traceback
             logger.error(
                 "Script generation failed",
                 error=str(e),
+                error_type=type(e).__name__,
+                traceback=traceback.format_exc(),
                 checkpoint_id=ctx.idempotency_key,
             )
             raise ValueError(f"Script generation failed: {str(e)}") from e
@@ -313,7 +316,7 @@ class AnthropicNarrativeProvider:
         Raises:
             ValueError: If response cannot be parsed as valid JSON
         """
-        async with httpx.AsyncClient(timeout=60.0) as client:
+        async with httpx.AsyncClient(timeout=180.0) as client:
             request_body = {
                 "model": self.MODEL,
                 "max_tokens": 4096,
@@ -329,7 +332,7 @@ class AnthropicNarrativeProvider:
             # Save request
             request_id = hashlib.md5(prompt.encode()).hexdigest()[:12]
             request_path = llm_calls_dir / f"{role}_{request_id}_request.json"
-            with open(request_path, "w") as f:
+            with open(request_path, "w", encoding="utf-8") as f:
                 json.dump(request_body, f, ensure_ascii=False, indent=2)
 
             # Call API
@@ -342,12 +345,19 @@ class AnthropicNarrativeProvider:
                 },
             )
 
-            response.raise_for_status()
+            if response.status_code != 200:
+                error_body = response.text
+                logger.error(
+                    "Anthropic API error",
+                    status_code=response.status_code,
+                    response_body=error_body,
+                )
+                response.raise_for_status()
             response_data = response.json()
 
             # Save response
             response_path = llm_calls_dir / f"{role}_{request_id}_response.json"
-            with open(response_path, "w") as f:
+            with open(response_path, "w", encoding="utf-8") as f:
                 json.dump(response_data, f, ensure_ascii=False, indent=2)
 
             # Extract and parse JSON from response
@@ -356,7 +366,7 @@ class AnthropicNarrativeProvider:
             # Repair and parse JSON
             repaired = repair_json(content)
             try:
-                parsed = json.loads(repaired)
+                parsed = json.loads(repaired, strict=False)
             except json.JSONDecodeError as e:
                 logger.error(
                     "Failed to parse JSON from Claude response",
@@ -410,13 +420,34 @@ class AnthropicNarrativeProvider:
             )
             segments.append(segment)
 
-        # Validate segments have required purposes
+        # Validate segments have required purposes, add defaults if missing
         purposes = {seg.purpose for seg in segments}
         if "hook" not in purposes or "cta" not in purposes:
             logger.warning(
                 "Script missing hook or CTA segment, adding defaults",
                 current_purposes=purposes,
             )
+            if "hook" not in purposes:
+                hook_seg = ScriptSegment(
+                    segment_id=f"seg_{len(segments) + 1:03d}",
+                    order=0,
+                    purpose="hook",
+                    text="[기본 훅] 지금부터 흥미로운 이야기를 시작하겠습니다.",
+                    est_duration_sec=15.0,
+                )
+                segments.insert(0, hook_seg)
+                # Re-number orders
+                for i, seg in enumerate(segments):
+                    seg.order = i + 1
+            if "cta" not in purposes:
+                cta_seg = ScriptSegment(
+                    segment_id=f"seg_{len(segments) + 1:03d}",
+                    order=len(segments) + 1,
+                    purpose="cta",
+                    text="이 영상이 도움이 됐다면 구독과 좋아요 부탁드립니다. 댓글로 다음에 다뤄줬으면 하는 주제도 알려주세요!",
+                    est_duration_sec=15.0,
+                )
+                segments.append(cta_seg)
 
         contract_id = f"scr_{hashlib.md5(f'{ctx.run_id}{ctx.stage_run_id}'.encode()).hexdigest()[:8]}"
 

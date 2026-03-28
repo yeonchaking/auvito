@@ -32,7 +32,7 @@ def load_settings() -> tuple[Settings, dict]:
 
     # Load default config
     config_path = Path(__file__).parent / "config" / "default.yaml"
-    with open(config_path) as f:
+    with open(config_path, encoding="utf-8") as f:
         config = yaml.safe_load(f)
 
     return settings, config

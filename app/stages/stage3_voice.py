@@ -288,7 +288,7 @@ class VoiceStage(BaseStage):
         # Create concat demuxer file
         concat_file = Path(output_path).parent / "concat_list.txt"
         try:
-            with open(concat_file, "w") as f:
+            with open(concat_file, "w", encoding="utf-8") as f:
                 for clip_file in clip_files:
                     f.write(f"file '{clip_file}'\n")
 

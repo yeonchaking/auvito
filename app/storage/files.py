@@ -16,7 +16,7 @@ class FileStorage:
             if ensure_dir:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 json.dump(data, f, indent=2, default=str)
             return True
         except Exception:
@@ -26,7 +26,7 @@ class FileStorage:
     async def load_json(path: str) -> Optional[Any]:
         """Load data from JSON file."""
         try:
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return json.load(f)
         except Exception:
             return None
@@ -39,7 +39,7 @@ class FileStorage:
             if ensure_dir:
                 file_path.parent.mkdir(parents=True, exist_ok=True)
 
-            with open(file_path, "w") as f:
+            with open(file_path, "w", encoding="utf-8") as f:
                 f.write(text)
             return True
         except Exception:
@@ -49,7 +49,7 @@ class FileStorage:
     async def load_text(path: str) -> Optional[str]:
         """Load text from file."""
         try:
-            with open(path, "r") as f:
+            with open(path, "r", encoding="utf-8") as f:
                 return f.read()
         except Exception:
             return None
