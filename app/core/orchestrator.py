@@ -88,22 +88,23 @@ class PipelineOrchestrator:
                 "openai_api_key": self.settings.openai_api_key,
             }
 
+        workspace_root = self._get_workspace_root()
+
         research = YouTubeResearchProvider(
             api_key=api_keys.get("youtube_api_key", ""),
             anthropic_api_key=api_keys.get("anthropic_api_key", ""),
         )
         narrative = AnthropicNarrativeProvider(
             api_key=api_keys.get("anthropic_api_key", ""),
-            config=self.config,
+            workspace_root=workspace_root,
         )
-        tts = EdgeTTSProvider(config=self.config)
+        tts = EdgeTTSProvider(workspace_root=workspace_root)
         stt = OpenAISTTProvider(
             api_key=api_keys.get("openai_api_key", ""),
-            config=self.config,
         )
         asset = OpenAIAssetProvider(
             api_key=api_keys.get("openai_api_key", ""),
-            config=self.config,
+            workspace_root=workspace_root,
         )
 
         return {
@@ -302,53 +303,38 @@ class PipelineOrchestrator:
         """
         try:
             if stage_name == "intake":
-                from app.stages.stage0_intake import IntakeStage, IntakeStageInput
+                from app.stages.stage0_intake import IntakeStage
 
-                stage = IntakeStage()
-                input_data = IntakeStageInput(
-                    title_seed=project.title_seed,
-                    channel_name=project.channel_name,
-                    niche=project.niche,
-                    target_duration_sec=project.target_duration_sec,
-                    workspace_root=workspace_root,
-                )
-                result = await stage.execute(input_data)
-                return {"success": True, "result": result}
+                stage = IntakeStage(db=self.db, workspace_root=workspace_root)
+                result = await stage.execute(project)
+                return {"success": True, "result": f"Workspace created: {project.slug}"}
 
             elif stage_name == "benchmark":
                 from app.stages.stage1_benchmark import BenchmarkStage, BenchmarkStageInput
 
-                stage = BenchmarkStage()
+                # Use niche + title_seed as search keywords
+                search_keywords = [project.niche, project.title_seed]
+                stage = BenchmarkStage(db=self.db)
                 input_data = BenchmarkStageInput(
                     project=project,
+                    search_keywords=search_keywords,
                     workspace_root=workspace_root,
-                    research_provider=providers["research"],
-                    run_id=run_id,
+                    youtube_api_key=self.settings.youtube_api_key if self.settings else "",
+                    anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "BenchmarkReport generated"}
 
             elif stage_name == "script":
                 from app.stages.stage2_script import ScriptStage, ScriptStageInput
-                from app.storage.files import FileStorage
-                import json
 
-                # Load benchmark report
-                benchmark_path = project_dir / "01_benchmark" / "benchmark_report.json"
-                benchmark_data = await FileStorage.load_json(str(benchmark_path))
-                if not benchmark_data:
-                    return {"success": False, "error": "BenchmarkReport not found. Run benchmark first."}
-
-                from app.domain.contracts import BenchmarkReport
-                benchmark_report = BenchmarkReport(**benchmark_data)
-
-                stage = ScriptStage()
+                benchmark_path = str(project_dir / "01_benchmark" / "benchmark_report.json")
+                stage = ScriptStage(db=self.db)
                 input_data = ScriptStageInput(
                     project=project,
-                    benchmark_report=benchmark_report,
+                    benchmark_report_path=benchmark_path,
                     workspace_root=workspace_root,
-                    narrative_provider=providers["narrative"],
-                    run_id=run_id,
+                    anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "ScriptContract generated"}
@@ -357,7 +343,6 @@ class PipelineOrchestrator:
                 from app.stages.stage3_voice import VoiceStage, VoiceStageInput
                 from app.storage.files import FileStorage
 
-                # Load script contract
                 script_path = project_dir / "02_script" / "script_contract.json"
                 script_data = await FileStorage.load_json(str(script_path))
                 if not script_data:
@@ -370,10 +355,7 @@ class PipelineOrchestrator:
                 input_data = VoiceStageInput(
                     script_contract=script_contract,
                     workspace_root=workspace_root,
-                    project_slug=project.slug,
-                    tts_provider=providers["tts"],
-                    stt_provider=providers["stt"],
-                    run_id=run_id,
+                    openai_api_key=self.settings.openai_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "NarrationContract generated"}
@@ -382,7 +364,6 @@ class PipelineOrchestrator:
                 from app.stages.stage4_storyboard import StoryboardStage, StoryboardStageInput
                 from app.storage.files import FileStorage
 
-                # Load script + narration contracts
                 script_path = project_dir / "02_script" / "script_contract.json"
                 narration_path = project_dir / "03_voice" / "narration_contract.json"
 
@@ -398,14 +379,12 @@ class PipelineOrchestrator:
                 script_contract = ScriptContract(**script_data)
                 narration_contract = NarrationContract(**narration_data)
 
-                stage = StoryboardStage()
+                stage = StoryboardStage(db=self.db)
                 input_data = StoryboardStageInput(
                     script_contract=script_contract,
                     narration_contract=narration_contract,
                     workspace_root=workspace_root,
-                    project_slug=project.slug,
-                    narrative_provider=providers["narrative"],
-                    run_id=run_id,
+                    anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "StoryboardContract generated"}
@@ -423,13 +402,12 @@ class PipelineOrchestrator:
                 from app.domain.contracts import StoryboardContract
                 storyboard_contract = StoryboardContract(**storyboard_data)
 
-                stage = AssetStage()
+                stage = AssetStage(db=self.db)
                 input_data = AssetStageInput(
                     storyboard_contract=storyboard_contract,
                     workspace_root=workspace_root,
-                    project_slug=project.slug,
-                    asset_provider=providers["asset"],
-                    run_id=run_id,
+                    openai_api_key=self.settings.openai_api_key if self.settings else None,
+                    stage_run_id=run_id,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "AssetManifestContract generated"}
@@ -466,7 +444,7 @@ class PipelineOrchestrator:
                     storyboard_contract=storyboard_contract,
                     asset_manifest_contract=asset_manifest,
                     workspace_root=workspace_root,
-                    stage_run_id=f"stg_{run_id}_render_1",
+                    stage_run_id=run_id,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "draft.mp4 rendered"}
