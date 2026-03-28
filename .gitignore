@@ -51,6 +51,7 @@ ENV/
 workspace/credentials/
 workspace/projects/
 !workspace/projects/.gitkeep
+workspace/temp/
 
 # OS
 .DS_Store
