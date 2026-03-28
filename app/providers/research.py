@@ -194,9 +194,11 @@ class YouTubeResearchProvider:
                     search_data = search_response.json()
 
                     # Extract video IDs
+                    # YouTube search API returns id.videoId, not snippet.videoId
                     for item in search_data.get("items", []):
-                        video_id = item["snippet"]["videoId"]
-                        if video_id not in video_ids:
+                        item_id = item.get("id", {})
+                        video_id = item_id.get("videoId")
+                        if video_id and video_id not in video_ids:
                             video_ids.add(video_id)
 
                 except httpx.HTTPError as e:
