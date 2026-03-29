@@ -31,6 +31,7 @@ class StoryboardStageInput:
         script_contract: ScriptContract,
         narration_contract: NarrationContract,
         workspace_root: str,
+        project_slug: str,
         anthropic_api_key: Optional[str] = None,
         aspect_ratio: str = "16:9",
     ):
@@ -40,12 +41,14 @@ class StoryboardStageInput:
             script_contract: ScriptContract from Stage 2
             narration_contract: NarrationContract from Stage 3
             workspace_root: Workspace root directory
+            project_slug: Project slug (used for output directory naming)
             anthropic_api_key: Optional Anthropic API key
             aspect_ratio: Target aspect ratio (default: 16:9)
         """
         self.script_contract = script_contract
         self.narration_contract = narration_contract
         self.workspace_root = workspace_root
+        self.project_slug = project_slug
         self.anthropic_api_key = anthropic_api_key
         self.aspect_ratio = aspect_ratio
 
@@ -95,7 +98,7 @@ class StoryboardStage(BaseStage):
         """
         script_contract = input_data.script_contract
         narration_contract = input_data.narration_contract
-        workspace = Path(input_data.workspace_root) / "projects" / script_contract.run_id
+        workspace = Path(input_data.workspace_root) / "projects" / input_data.project_slug
         storyboard_dir = workspace / "04_storyboard"
         storyboard_dir.mkdir(parents=True, exist_ok=True)
 

@@ -385,6 +385,7 @@ class PipelineOrchestrator:
                     script_contract=script_contract,
                     narration_contract=narration_contract,
                     workspace_root=workspace_root,
+                    project_slug=project.slug,
                     anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
