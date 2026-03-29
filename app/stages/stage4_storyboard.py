@@ -266,10 +266,14 @@ class StoryboardStage(BaseStage):
             )
 
         if abs(last_shot.end_sec - total_duration_sec) > epsilon:
-            raise ValueError(
-                f"Last shot {last_shot.shot_id} does not end at {total_duration_sec}s, "
-                f"ends at {last_shot.end_sec}s"
+            logger.warning(
+                f"Last shot {last_shot.shot_id} ends at {last_shot.end_sec}s, "
+                f"expected {total_duration_sec}s. Auto-extending to cover full duration.",
+                shot_id=last_shot.shot_id,
+                original_end=last_shot.end_sec,
+                target_end=total_duration_sec,
             )
+            last_shot.end_sec = total_duration_sec
 
         logger.info(
             "Shot coverage validation passed",
