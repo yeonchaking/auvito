@@ -410,6 +410,7 @@ class PipelineOrchestrator:
                     workspace_root=workspace_root,
                     openai_api_key=self.settings.openai_api_key if self.settings else None,
                     stage_run_id=run_id,
+                    project_slug=project.slug,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "AssetManifestContract generated"}

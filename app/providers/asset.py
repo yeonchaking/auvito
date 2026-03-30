@@ -94,11 +94,11 @@ class OpenAIAssetProvider:
     """OpenAI-based asset provider implementation."""
 
     API_BASE = "https://api.openai.com/v1"
-    IMAGE_MODEL = "gpt-image-1"
+    IMAGE_MODEL = "dall-e-3"
     VIDEO_MODEL = "sora-2"
 
     # Cost constants
-    IMAGE_COST_USD = Decimal("0.04")  # High quality 1536x1024
+    IMAGE_COST_USD = Decimal("0.04")  # dall-e-3 standard 1792x1024
     VIDEO_COST_USD_PER_SEC = Decimal("0.10")  # Estimated for Sora-2
 
     def __init__(self, api_key: Optional[str] = None, workspace_root: Optional[str] = None):
@@ -158,8 +158,9 @@ class OpenAIAssetProvider:
                 request_body = {
                     "model": self.IMAGE_MODEL,
                     "prompt": req.prompt,
-                    "size": "1536x1024",  # Landscape 16:9 closest option
-                    "quality": "high",
+                    "size": "1792x1024",  # Landscape 16:9 (dall-e-3 supported size)
+                    "quality": "standard",
+                    "response_format": "b64_json",
                     "n": 1,
                 }
 
@@ -172,6 +173,21 @@ class OpenAIAssetProvider:
                     },
                 )
 
+                if response.status_code != 200:
+                    error_body = response.text
+                    logger.error(
+                        "OpenAI image API error",
+                        status_code=response.status_code,
+                        response_body=error_body,
+                    )
+                    # Parse error code for specific handling
+                    try:
+                        error_json = json.loads(error_body)
+                        error_code = error_json.get("error", {}).get("code", "")
+                        if error_code:
+                            raise ValueError(f"OpenAI API error [{error_code}]: {error_body}")
+                    except (json.JSONDecodeError, KeyError):
+                        pass
                 response.raise_for_status()
                 response_data = response.json()
 
@@ -185,9 +201,11 @@ class OpenAIAssetProvider:
                 # Compute SHA256
                 sha256_hash = hashlib.sha256(image_bytes).hexdigest()
 
-                # Save image to file
-                asset_id = f"img_{hashlib.md5(f'{ctx.idempotency_key}_{ctx.stage_run_id}'.encode()).hexdigest()[:8]}"
-                workspace = Path(self.workspace_root) / "projects" / ctx.run_id
+                # Save image to file (use shot_id for unique filename per shot)
+                shot_key = req.shot_id or f"{ctx.idempotency_key}_{ctx.stage_run_id}"
+                asset_id = f"img_{hashlib.md5(shot_key.encode()).hexdigest()[:8]}"
+                project_dir = ctx.project_slug or ctx.run_id
+                workspace = Path(self.workspace_root) / "projects" / project_dir
                 assets_dir = workspace / "05_assets" / "images"
                 assets_dir.mkdir(parents=True, exist_ok=True)
 

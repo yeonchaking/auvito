@@ -55,6 +55,7 @@ class ImageAssetRequest(BaseModel):
     width: int = 1280
     height: int = 720
     style: Optional[str] = None
+    shot_id: Optional[str] = None
 
 
 class VideoAssetRequest(BaseModel):

@@ -17,6 +17,7 @@ class ProviderCallContext:
     idempotency_key: str
     deadline_s: Optional[float] = None
     dry_run: bool = False
+    project_slug: Optional[str] = None
 
 
 class CostEstimate(BaseModel):

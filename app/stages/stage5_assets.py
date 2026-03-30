@@ -34,7 +34,8 @@ class AssetStageInput:
         workspace_root: str,
         openai_api_key: Optional[str] = None,
         stage_run_id: Optional[str] = None,
-        max_concurrent: int = 5,
+        max_concurrent: int = 1,
+        project_slug: Optional[str] = None,
     ):
         """Initialize asset stage input.
 
@@ -44,12 +45,14 @@ class AssetStageInput:
             openai_api_key: Optional OpenAI API key
             stage_run_id: Optional stage run ID
             max_concurrent: Maximum concurrent image generation tasks
+            project_slug: Project slug for workspace path
         """
         self.storyboard_contract = storyboard_contract
         self.workspace_root = workspace_root
         self.openai_api_key = openai_api_key
         self.stage_run_id = stage_run_id
         self.max_concurrent = max_concurrent
+        self.project_slug = project_slug
 
 
 class AssetStage(BaseStage):
@@ -100,7 +103,8 @@ class AssetStage(BaseStage):
             ValueError: If asset generation fails
         """
         storyboard_contract = input_data.storyboard_contract
-        workspace = Path(input_data.workspace_root) / "projects" / storyboard_contract.run_id
+        project_slug = input_data.project_slug or storyboard_contract.run_id
+        workspace = Path(input_data.workspace_root) / "projects" / project_slug
         assets_dir = workspace / "05_assets"
         assets_dir.mkdir(parents=True, exist_ok=True)
 
@@ -132,6 +136,7 @@ class AssetStage(BaseStage):
             idempotency_key=self._compute_idempotency_key(
                 storyboard_contract.contract_id
             ),
+            project_slug=project_slug,
         )
 
         try:
@@ -339,10 +344,35 @@ class AssetStage(BaseStage):
                     prompt=shot.prompt,
                     width=1536,
                     height=1024,
+                    shot_id=unit_id,
                 )
 
-                # Generate image
-                generated_asset = await asset_provider.generate_image(image_req, ctx)
+                # Generate image (rate limit: wait 65s between requests for free tier)
+                try:
+                    generated_asset = await asset_provider.generate_image(image_req, ctx)
+                except ValueError as img_err:
+                    if "content_policy_violation" in str(img_err):
+                        # Retry with a softer, abstract prompt
+                        logger.warning(
+                            "Content policy violation, retrying with abstract prompt",
+                            shot_id=unit_id,
+                        )
+                        await asyncio.sleep(65)
+                        safe_prompt = (
+                            f"Abstract historical Korean illustration, symbolic artistic composition, "
+                            f"muted earth tones, traditional ink painting style, documentary aesthetic, "
+                            f"no people, no violence, conceptual representation of ancient Korean history"
+                        )
+                        safe_req = ImageAssetRequest(
+                            prompt=safe_prompt,
+                            width=image_req.width,
+                            height=image_req.height,
+                            shot_id=unit_id,
+                        )
+                        generated_asset = await asset_provider.generate_image(safe_req, ctx)
+                    else:
+                        raise
+                await asyncio.sleep(65)
 
                 # Update checkpoint
                 unit_state.status = "COMPLETED"
