@@ -41,6 +41,7 @@ class RenderStageInput:
         audio_codec: str = "aac",
         font_path: Optional[str] = None,
         stage_run_id: Optional[str] = None,
+        project_slug: Optional[str] = None,
     ):
         """Initialize render stage input.
 
@@ -56,6 +57,7 @@ class RenderStageInput:
             audio_codec: Audio codec (aac, mp3, etc.)
             font_path: Path to font file for subtitles
             stage_run_id: Optional stage run ID
+            project_slug: Project slug for workspace path
         """
         self.narration_contract = narration_contract
         self.storyboard_contract = storyboard_contract
@@ -68,6 +70,7 @@ class RenderStageInput:
         self.audio_codec = audio_codec
         self.font_path = font_path
         self.stage_run_id = stage_run_id
+        self.project_slug = project_slug
 
 
 class RenderStage(BaseStage):
@@ -112,10 +115,11 @@ class RenderStage(BaseStage):
         storyboard_contract = input_data.storyboard_contract
         asset_manifest_contract = input_data.asset_manifest_contract
 
+        project_slug = input_data.project_slug or storyboard_contract.run_id
         workspace = (
             Path(input_data.workspace_root)
             / "projects"
-            / storyboard_contract.run_id
+            / project_slug
         )
         render_dir = workspace / "06_render"
         await FileStorage.ensure_dir(str(render_dir))

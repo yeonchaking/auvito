@@ -441,6 +441,15 @@ class PipelineOrchestrator:
                 storyboard_contract = StoryboardContract(**storyboard_data)
                 asset_manifest = AssetManifestContract(**manifest_data)
 
+                # Resolve narration audio/subtitle paths to absolute
+                voice_dir = project_dir / "03_voice"
+                actual_audio = voice_dir / "narration.wav"
+                actual_subs = voice_dir / "subtitles.srt"
+                if actual_audio.exists():
+                    narration_contract.narration_audio_uri = str(actual_audio)
+                if actual_subs.exists():
+                    narration_contract.subtitles_uri = str(actual_subs)
+
                 stage = RenderStage()
                 input_data = RenderStageInput(
                     narration_contract=narration_contract,
@@ -448,6 +457,7 @@ class PipelineOrchestrator:
                     asset_manifest_contract=asset_manifest,
                     workspace_root=workspace_root,
                     stage_run_id=run_id,
+                    project_slug=project.slug,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "draft.mp4 rendered"}

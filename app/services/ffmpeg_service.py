@@ -581,18 +581,29 @@ class FFmpegService:
                         logger.error("Failed to overlay audio")
                         return False
 
-                    logger.info("Burning subtitles")
-
-                    success = await self.burn_subtitles(
-                        audio_path,
-                        subtitles_path,
-                        output_path,
-                        font_path=font_path,
+                    # Only burn subtitles if file exists and has content
+                    subs_file = Path(subtitles_path) if subtitles_path else None
+                    has_subtitles = (
+                        subs_file is not None
+                        and subs_file.exists()
+                        and subs_file.stat().st_size > 0
                     )
 
-                    if not success:
-                        logger.error("Failed to burn subtitles")
-                        return False
+                    if has_subtitles:
+                        logger.info("Burning subtitles")
+                        success = await self.burn_subtitles(
+                            audio_path,
+                            subtitles_path,
+                            output_path,
+                            font_path=font_path,
+                        )
+                        if not success:
+                            logger.error("Failed to burn subtitles")
+                            return False
+                    else:
+                        logger.warning("Subtitles file empty or missing, skipping burn")
+                        import shutil
+                        shutil.copy2(audio_path, output_path)
 
                     logger.info("Draft video creation completed", output=output_path)
                     return True
