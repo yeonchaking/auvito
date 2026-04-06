@@ -1,6 +1,7 @@
 """Speech-to-text provider abstraction."""
 
 import asyncio
+from concurrent.futures import ThreadPoolExecutor
 from decimal import Decimal
 from pathlib import Path
 from typing import Optional, Protocol
@@ -309,3 +310,181 @@ class OpenAISTTProvider:
             )
 
         return words
+
+
+class FasterWhisperSTTProvider:
+    """Local STT provider using faster-whisper (free, no API key needed).
+
+    Uses CTranslate2-optimized Whisper model for fast local inference.
+    Supports Korean word-level timestamps.
+    """
+
+    def __init__(
+        self,
+        model_size: str = "medium",
+        device: str = "auto",
+        compute_type: str = "auto",
+    ):
+        """Initialize FasterWhisper provider.
+
+        Args:
+            model_size: Whisper model size ('tiny', 'base', 'small', 'medium', 'large-v2', 'large-v3')
+                        'medium' is a good balance of speed and Korean accuracy.
+            device: 'cpu', 'cuda', or 'auto' (auto-detects GPU)
+            compute_type: 'int8', 'float16', 'float32', or 'auto'
+        """
+        self.model_size = model_size
+        self.device = device
+        self.compute_type = compute_type
+        self._model = None
+        self.ffmpeg_service = FFmpegService()
+        self._executor = ThreadPoolExecutor(max_workers=1)
+
+    def _load_model(self):
+        """Lazily load the Whisper model (downloads on first use)."""
+        if self._model is None:
+            from faster_whisper import WhisperModel
+
+            # Resolve device/compute_type
+            device = self.device
+            compute_type = self.compute_type
+
+            if device == "auto":
+                try:
+                    import torch
+                    device = "cuda" if torch.cuda.is_available() else "cpu"
+                except ImportError:
+                    device = "cpu"
+
+            if compute_type == "auto":
+                compute_type = "int8" if device == "cpu" else "float16"
+
+            logger.info(
+                "Loading FasterWhisper model",
+                model_size=self.model_size,
+                device=device,
+                compute_type=compute_type,
+            )
+            self._model = WhisperModel(
+                self.model_size,
+                device=device,
+                compute_type=compute_type,
+            )
+            logger.info("FasterWhisper model loaded", model_size=self.model_size)
+        return self._model
+
+    def _transcribe_sync(self, audio_path: str, language: str) -> list[TranscriptWord]:
+        """Synchronous transcription (runs in thread pool).
+
+        Args:
+            audio_path: Path to audio file
+            language: Language code (e.g. 'ko')
+
+        Returns:
+            List of TranscriptWord with word-level timestamps
+        """
+        model = self._load_model()
+
+        # Normalize language code: 'ko-KR' → 'ko'
+        lang = language.split("-")[0].lower() if language else "ko"
+
+        segments, info = model.transcribe(
+            audio_path,
+            language=lang,
+            word_timestamps=True,
+            beam_size=5,
+            vad_filter=True,           # Remove silence segments
+            vad_parameters=dict(min_silence_duration_ms=300),
+        )
+
+        words: list[TranscriptWord] = []
+        for segment in segments:
+            if segment.words:
+                for w in segment.words:
+                    words.append(
+                        TranscriptWord(
+                            word=w.word.strip(),
+                            start_sec=w.start,
+                            end_sec=w.end,
+                        )
+                    )
+
+        logger.info(
+            "FasterWhisper transcription done",
+            word_count=len(words),
+            language=info.language,
+            duration_sec=info.duration,
+        )
+        return words
+
+    async def estimate_cost(
+        self, req: STTRequest, ctx: ProviderCallContext
+    ) -> CostEstimate:
+        """FasterWhisper is free (local inference)."""
+        return CostEstimate(
+            estimated_cost_usd=Decimal("0"),
+            confidence="high",
+            reasoning="FasterWhisper is a local model — no API cost.",
+        )
+
+    async def transcribe(
+        self, req: STTRequest, ctx: ProviderCallContext
+    ) -> TranscriptResult:
+        """Transcribe audio using local faster-whisper model.
+
+        Args:
+            req: STT request with audio file path
+            ctx: Provider context
+
+        Returns:
+            TranscriptResult with word-level timestamps
+
+        Raises:
+            RuntimeError: If transcription fails
+        """
+        logger.info(
+            "Starting FasterWhisper transcription",
+            audio_path=req.audio_path,
+            language=req.language,
+            model_size=self.model_size,
+            idempotency_key=ctx.idempotency_key,
+        )
+
+        try:
+            loop = asyncio.get_event_loop()
+            words = await loop.run_in_executor(
+                self._executor,
+                self._transcribe_sync,
+                req.audio_path,
+                req.language,
+            )
+
+            full_text = " ".join(w.word for w in words)
+
+            duration = await self.ffmpeg_service.get_duration(req.audio_path) or 0.0
+
+            return TranscriptResult(
+                text=full_text,
+                language=req.language,
+                words=words,
+                confidence=0.9,
+                meta=ProviderMeta(
+                    provider_name="faster_whisper",
+                    model=self.model_size,
+                    request_id=ctx.idempotency_key,
+                    actual_cost_usd=Decimal("0"),
+                    metadata={
+                        "duration_sec": duration,
+                        "word_count": len(words),
+                        "model_size": self.model_size,
+                    },
+                ),
+            )
+
+        except Exception as e:
+            logger.error(
+                "FasterWhisper transcription failed",
+                error=str(e),
+                idempotency_key=ctx.idempotency_key,
+            )
+            raise RuntimeError(f"FasterWhisper transcription failed: {e}") from e

@@ -89,7 +89,9 @@ class NarrationContract(ContractEnvelope):
     script_id: str
     language: str
     narration_audio_uri: str
-    subtitles_uri: str
+    subtitles_uri: str                          # primary subtitle URI (kept for backward compat)
+    subtitles_ko_uri: Optional[str] = None      # Korean SRT
+    subtitles_en_uri: Optional[str] = None      # English SRT (translated)
     total_duration_sec: float
 
     voice: dict[str, Any]

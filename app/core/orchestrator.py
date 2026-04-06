@@ -77,7 +77,6 @@ class PipelineOrchestrator:
         from app.providers.research import YouTubeResearchProvider
         from app.providers.narrative import AnthropicNarrativeProvider
         from app.providers.tts import EdgeTTSProvider
-        from app.providers.stt import OpenAISTTProvider
         from app.providers.asset import OpenAIAssetProvider
 
         api_keys = {}
@@ -99,9 +98,6 @@ class PipelineOrchestrator:
             workspace_root=workspace_root,
         )
         tts = EdgeTTSProvider(workspace_root=workspace_root)
-        stt = OpenAISTTProvider(
-            api_key=api_keys.get("openai_api_key", ""),
-        )
         asset = OpenAIAssetProvider(
             api_key=api_keys.get("openai_api_key", ""),
             workspace_root=workspace_root,
@@ -111,7 +107,6 @@ class PipelineOrchestrator:
             "research": research,
             "narrative": narrative,
             "tts": tts,
-            "stt": stt,
             "asset": asset,
         }
 
@@ -357,6 +352,7 @@ class PipelineOrchestrator:
                     workspace_root=workspace_root,
                     project_slug=project.slug,
                     openai_api_key=self.settings.openai_api_key if self.settings else None,
+                    anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "NarrationContract generated"}

@@ -9,7 +9,8 @@ from typing import Optional
 
 from app.domain.contracts import NarrationClip, NarrationContract, ScriptContract
 from app.domain.schemas import STTRequest, TTSRequest
-from app.providers.stt import OpenAISTTProvider, TranscriptWord
+from app.providers.stt import FasterWhisperSTTProvider, TranscriptWord
+from app.providers.translation import ClaudeSubtitleTranslator
 from app.providers.tts import EdgeTTSProvider
 from app.providers.base import ProviderCallContext
 from app.services.ffmpeg_service import FFmpegService
@@ -30,8 +31,10 @@ class VoiceStageInput:
         workspace_root: str,
         project_slug: str,
         openai_api_key: Optional[str] = None,
+        anthropic_api_key: Optional[str] = None,
         tts_voice: str = "ko-KR-SunHiNeural",
         speaking_rate: float = 1.0,
+        whisper_model_size: str = "medium",
     ):
         """Initialize voice stage input.
 
@@ -39,16 +42,20 @@ class VoiceStageInput:
             script_contract: ScriptContract from Stage 2
             workspace_root: Workspace root directory
             project_slug: Project slug (used for output directory naming)
-            openai_api_key: Optional OpenAI API key for STT
+            openai_api_key: Unused (kept for backward compat)
+            anthropic_api_key: Anthropic API key for subtitle translation
             tts_voice: TTS voice ID
             speaking_rate: TTS speaking rate (0.5-2.0)
+            whisper_model_size: faster-whisper model size ('small', 'medium', 'large-v2', etc.)
         """
         self.script_contract = script_contract
         self.workspace_root = workspace_root
         self.project_slug = project_slug
-        self.openai_api_key = openai_api_key
+        self.openai_api_key = openai_api_key  # kept for compat, not used
+        self.anthropic_api_key = anthropic_api_key
         self.tts_voice = tts_voice
         self.speaking_rate = speaking_rate
+        self.whisper_model_size = whisper_model_size
 
 
 class VoiceStage(BaseStage):
@@ -75,6 +82,7 @@ class VoiceStage(BaseStage):
         self.ffmpeg_service = FFmpegService()
         self.tts_provider = None
         self.stt_provider = None
+        self.translator = None
 
     async def execute(self, input_data: VoiceStageInput) -> NarrationContract:
         """Generate voice narration and subtitles.
@@ -107,7 +115,17 @@ class VoiceStage(BaseStage):
 
         # Initialize providers
         self.tts_provider = EdgeTTSProvider(workspace_root=input_data.workspace_root)
-        self.stt_provider = OpenAISTTProvider(api_key=input_data.openai_api_key)
+        self.stt_provider = FasterWhisperSTTProvider(
+            model_size=input_data.whisper_model_size
+        )
+        # Translator: use provided key or fall back to env var
+        import os
+        anthropic_key = input_data.anthropic_api_key or os.getenv("ANTHROPIC_API_KEY", "")
+        if anthropic_key:
+            self.translator = ClaudeSubtitleTranslator(api_key=anthropic_key)
+        else:
+            self.translator = None
+            logger.warning("No Anthropic API key — English subtitles will not be generated")
 
         try:
             # Step 1: Generate audio clips for each segment
@@ -131,11 +149,35 @@ class VoiceStage(BaseStage):
                 merged_audio_path, script_contract.language
             )
 
-            # Step 4: Generate SRT subtitles
-            subtitles_path = str(voice_dir / "subtitles.srt")
-            await self._generate_subtitles(
-                transcript, subtitles_path, script_contract.language
+            # Step 4a: Generate Korean SRT
+            subtitles_ko_path = str(voice_dir / "subtitles.ko.srt")
+            ko_subtitles = await self._generate_subtitles(
+                transcript, subtitles_ko_path, script_contract.language
             )
+            # Also write as subtitles.srt for backward compat (ffmpeg_service reads this)
+            subtitles_path = str(voice_dir / "subtitles.srt")
+            SRTGenerator.write_srt_file(ko_subtitles, subtitles_path)
+
+            # Step 4b: Translate Korean → English SRT via Claude API
+            subtitles_en_path: Optional[str] = None
+            if self.translator and ko_subtitles:
+                try:
+                    logger.info("Translating Korean subtitles to English via Claude API")
+                    en_subtitles = await self.translator.translate_srt(
+                        ko_subtitles, source_lang="Korean", target_lang="English"
+                    )
+                    subtitles_en_path = str(voice_dir / "subtitles.en.srt")
+                    SRTGenerator.write_srt_file(en_subtitles, subtitles_en_path)
+                    logger.info(
+                        "English subtitles written",
+                        path=subtitles_en_path,
+                        block_count=len(en_subtitles),
+                    )
+                except Exception as e:
+                    logger.error("English subtitle translation failed", error=str(e))
+                    subtitles_en_path = None
+            else:
+                logger.warning("Skipping English subtitle translation (no translator or empty KO subtitles)")
 
             # Create NarrationContract
             contract_id = f"nar_{hashlib.md5(f'{script_contract.run_id}_{self.stage_name}'.encode()).hexdigest()[:8]}"
@@ -151,6 +193,11 @@ class VoiceStage(BaseStage):
                 language=script_contract.language,
                 narration_audio_uri=f"artifacts/audio/narration.wav",
                 subtitles_uri=f"artifacts/subtitles/subtitles.srt",
+                subtitles_ko_uri=f"artifacts/subtitles/subtitles.ko.srt",
+                subtitles_en_uri=(
+                    f"artifacts/subtitles/subtitles.en.srt"
+                    if subtitles_en_path else None
+                ),
                 total_duration_sec=total_duration,
                 voice={
                     "provider": "edge_tts",
@@ -175,7 +222,9 @@ class VoiceStage(BaseStage):
                 "script_id": script_contract.contract_id,
                 "generated_at": datetime.utcnow().isoformat(),
                 "tts_provider": "edge_tts",
-                "stt_provider": "openai",
+                "stt_provider": "faster_whisper",
+                "whisper_model_size": input_data.whisper_model_size,
+                "translation_provider": "claude" if subtitles_en_path else "none",
                 "segment_count": len(clips),
                 "total_duration_sec": total_duration,
             }
@@ -416,15 +465,18 @@ class VoiceStage(BaseStage):
 
     async def _generate_subtitles(
         self, words: list[TranscriptWord], output_path: str, language: str
-    ) -> None:
+    ) -> list[SRTSubtitle]:
         """Generate SRT subtitle file from word timestamps.
 
         Args:
             words: List of TranscriptWord with timestamps
             output_path: Output SRT file path
             language: Language code (for formatting)
+
+        Returns:
+            List of generated SRTSubtitle objects (empty list if no words).
         """
-        subtitles = []
+        subtitles: list[SRTSubtitle] = []
 
         if words:
             # Convert words to dict format for SRT generator
@@ -443,9 +495,7 @@ class VoiceStage(BaseStage):
                 max_lines=3,
             )
         else:
-            # Fallback: empty subtitles
             logger.warning("No word-level timestamps available, creating empty subtitles")
-            subtitles = []
 
         # Write SRT file
         try:
@@ -464,3 +514,5 @@ class VoiceStage(BaseStage):
         except Exception as e:
             logger.error("Subtitle generation failed", error=str(e))
             raise RuntimeError(f"Failed to generate subtitles: {str(e)}") from e
+
+        return subtitles
