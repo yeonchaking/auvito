@@ -88,7 +88,6 @@ class IntakeStage(BaseStage):
                 "assets": "0.00",
                 "render": "0.00",
                 "thumbnail": "0.00",
-                "publish": "0.00",
             },
             "created_at": datetime.utcnow().isoformat(),
         }
@@ -117,7 +116,6 @@ class IntakeStage(BaseStage):
             "05_assets",
             "06_render",
             "07_thumbnail",
-            "08_publish",
         ]
 
         for stage_dir in stage_dirs:

@@ -26,6 +26,7 @@ STAGE_ORDER = [
     "storyboard",
     "assets",
     "render",
+    "thumbnail",
 ]
 
 # Approval checkpoints that pause execution
@@ -125,7 +126,7 @@ class PipelineOrchestrator:
             stage_name: Stage to run
             mode: Execution mode (skip, resume, overwrite)
             run_id: Optional run ID (generates new if None)
-            approve_all: Auto-approve non-upload checkpoints
+            approve_all: Auto-approve non-required checkpoints
 
         Returns:
             dict with stage execution results
@@ -184,7 +185,7 @@ class PipelineOrchestrator:
             until_stage: Stop after this stage (default: last)
             mode: Execution mode
             run_id: Optional run ID
-            approve_all: Auto-approve non-upload checkpoints
+            approve_all: Auto-approve non-required checkpoints
 
         Returns:
             dict with pipeline execution results

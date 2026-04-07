@@ -17,9 +17,7 @@ class ProjectStatus(str, Enum):
     RENDER_READY = "render_ready"
     THUMBNAIL_READY = "thumbnail_ready"
     RENDER_APPROVED = "render_approved"
-    PUBLISH_READY = "publish_ready"
-    UPLOAD_APPROVED = "upload_approved"
-    PUBLISHED = "published"
+    DONE = "done"
     FAILED = "failed"
     NEEDS_REVISION = "needs_revision"
 
@@ -60,7 +58,6 @@ class StageName(str, Enum):
     ASSETS = "assets"
     RENDER = "render"
     THUMBNAIL = "thumbnail"
-    PUBLISH = "publish"
 
 
 class ApprovalStatus(str, Enum):

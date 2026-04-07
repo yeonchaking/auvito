@@ -13,11 +13,9 @@ from app.domain.contracts import (
     ScriptSegment,
     StoryboardContract,
     StoryboardShot,
-    UploadMetadataContract,
 )
 from app.domain.schemas import (
     BenchmarkRequest,
-    MetadataRequest,
     ScriptRequest,
     StoryboardRequest,
     STTRequest,
@@ -28,11 +26,6 @@ from app.providers.base import CostEstimate, ProviderCallContext
 from app.providers.narrative import ThumbnailCopyRequest, ThumbnailCopyResult
 from app.providers.stt import TranscriptResult, TranscriptWord
 from app.providers.tts import VoiceSynthesisResult
-from app.providers.upload import (
-    ResumableUploadProbeResult,
-    UploadResult,
-    UploadStatus,
-)
 
 
 class FakeResearchProvider:
@@ -162,32 +155,6 @@ class FakeNarrativeProvider:
             headline="Shocking Discovery!", subheading="You won't believe..."
         )
 
-    async def estimate_metadata_cost(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> CostEstimate:
-        """Estimate cost."""
-        return CostEstimate(estimated_cost_usd=Decimal("0.02"))
-
-    async def generate_metadata(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> UploadMetadataContract:
-        """Generate fake metadata."""
-        return UploadMetadataContract(
-            contract_id=f"metadata_{uuid.uuid4()}",
-            run_id=ctx.run_id,
-            generated_by_stage_run_id=ctx.stage_run_id,
-            created_at=datetime.utcnow(),
-            platform="youtube",
-            title="Sample Video Title",
-            description="This is a sample video description.",
-            tags=["sample", "test"],
-            visibility="private",
-            category_id=27,
-            default_language="ko",
-            made_for_kids=False,
-        )
-
-
 class FakeTTSProvider:
     """Fake TTS provider for testing."""
 
@@ -294,50 +261,3 @@ class FakeAssetProvider:
         )
 
 
-class FakeUploadProvider:
-    """Fake upload provider for testing."""
-
-    async def estimate_cost(
-        self, req, ctx: ProviderCallContext
-    ) -> CostEstimate:
-        """Estimate cost."""
-        return CostEstimate(estimated_cost_usd=Decimal("0.00"))
-
-    async def upload(self, req, ctx: ProviderCallContext) -> UploadResult:
-        """Upload video."""
-        return UploadResult(
-            video_id=f"vid_{uuid.uuid4()}",
-            url="https://youtube.com/watch?v=test",
-            status="COMPLETED",
-        )
-
-    async def get_status(
-        self, upload_id: str, ctx: ProviderCallContext
-    ) -> UploadStatus:
-        """Get upload status."""
-        return UploadStatus(
-            upload_id=upload_id, status="COMPLETED", bytes_confirmed=1000000
-        )
-
-    async def probe_resumable_session(
-        self,
-        session_uri: str,
-        file_size_bytes: int,
-        ctx: ProviderCallContext,
-    ) -> ResumableUploadProbeResult:
-        """Probe session."""
-        return ResumableUploadProbeResult(
-            session_valid=True,
-            status="ACTIVE",
-            bytes_confirmed_uploaded=0,
-        )
-
-    async def resume_upload(
-        self, session_uri: str, req, offset_bytes: int, ctx: ProviderCallContext
-    ) -> UploadResult:
-        """Resume upload."""
-        return UploadResult(
-            video_id=f"vid_{uuid.uuid4()}",
-            url="https://youtube.com/watch?v=test",
-            status="COMPLETED",
-        )

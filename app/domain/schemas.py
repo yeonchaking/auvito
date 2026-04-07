@@ -75,9 +75,3 @@ class MetadataRequest(BaseModel):
     keywords: list[str]
 
 
-class UploadRequest(BaseModel):
-    """Upload request schema."""
-
-    file_path: str
-    metadata_path: str
-    thumbnail_path: Optional[str] = None

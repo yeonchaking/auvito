@@ -203,18 +203,3 @@ class RenderPlanContract(ContractEnvelope):
     subtitles: RenderSubtitles
 
 
-class UploadMetadataContract(ContractEnvelope):
-    """Upload metadata contract from Stage 8."""
-
-    contract_type: Literal["upload_metadata"] = "upload_metadata"
-    schema_version: str = "1.0"
-
-    platform: str
-    title: str
-    description: str
-    tags: list[str]
-    visibility: Literal["private", "unlisted", "public"]
-    category_id: int
-    default_language: str
-    made_for_kids: bool
-    publish_at: Optional[datetime] = None

@@ -145,36 +145,3 @@ class QualityGateRunner:
             message=message,
         )
 
-    async def validate_upload(self, metadata: Any) -> GateResult:
-        """Validate upload metadata."""
-        passed = True
-        issues = []
-
-        if not metadata.title or len(metadata.title) == 0:
-            passed = False
-            issues.append("Title is required")
-
-        if not metadata.description or len(metadata.description) == 0:
-            passed = False
-            issues.append("Description is required")
-
-        if len(metadata.title) > 100:
-            issues.append("Title exceeds 100 characters")
-
-        if len(metadata.description) > 5000:
-            issues.append("Description exceeds 5000 characters")
-
-        message = "; ".join(issues) if issues else "Upload metadata validation passed"
-
-        return GateResult(
-            gate_id=f"gate_upload_{metadata.contract_id}",
-            stage_name="upload",
-            severity="block" if not passed else "warn",
-            passed=passed,
-            metrics={
-                "title_length": len(metadata.title),
-                "description_length": len(metadata.description),
-                "tag_count": len(metadata.tags),
-            },
-            message=message,
-        )

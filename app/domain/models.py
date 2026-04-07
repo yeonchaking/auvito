@@ -81,22 +81,6 @@ class AssetStageCheckpoint(BaseModel):
     units: dict[str, AssetUnitState] = Field(default_factory=dict)
 
 
-class UploadCheckpoint(BaseModel):
-    """Upload stage checkpoint for resumable upload."""
-
-    stage_run_id: str
-    local_file_uri: str
-    local_file_sha256: str
-    local_file_size_bytes: int
-    session_uri: str
-    bytes_confirmed_uploaded: int = 0
-    upload_id: Optional[str] = None
-    video_id: Optional[str] = None
-    status: Literal["CREATED", "UPLOADING", "COMPLETED", "EXPIRED", "FAILED"]
-    initiated_at: datetime
-    last_checked_at: Optional[datetime] = None
-
-
 class Artifact(BaseModel):
     """Artifact with provenance metadata."""
 

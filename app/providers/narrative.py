@@ -14,10 +14,8 @@ from app.domain.contracts import (
     ScriptContract,
     ScriptSegment,
     StoryboardContract,
-    UploadMetadataContract,
 )
 from app.domain.schemas import (
-    MetadataRequest,
     ScriptRequest,
     StoryboardRequest,
 )
@@ -84,19 +82,6 @@ class NarrativeProvider(Protocol):
     ) -> ThumbnailCopyResult:
         """Generate thumbnail copy."""
         ...
-
-    async def estimate_metadata_cost(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> CostEstimate:
-        """Estimate metadata generation cost."""
-        ...
-
-    async def generate_metadata(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> UploadMetadataContract:
-        """Generate upload metadata."""
-        ...
-
 
 class AnthropicNarrativeProvider:
     """Anthropic Claude-based narrative provider implementation."""
@@ -781,18 +766,3 @@ class AnthropicNarrativeProvider:
         """Generate thumbnail copy (Phase 2 - stub)."""
         raise NotImplementedError("Thumbnail copy generation will be implemented in Stage 7")
 
-    async def estimate_metadata_cost(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> CostEstimate:
-        """Estimate metadata generation cost (Phase 2)."""
-        return CostEstimate(
-            estimated_cost_usd=Decimal("0.15"),
-            confidence="low",
-            reasoning="Metadata generation not yet implemented",
-        )
-
-    async def generate_metadata(
-        self, req: MetadataRequest, ctx: ProviderCallContext
-    ) -> UploadMetadataContract:
-        """Generate upload metadata (Phase 2 - stub)."""
-        raise NotImplementedError("Metadata generation will be implemented in Stage 8")
