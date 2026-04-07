@@ -458,6 +458,35 @@ class PipelineOrchestrator:
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "draft.mp4 rendered"}
 
+            elif stage_name == "thumbnail":
+                from app.stages.stage7_thumbnail import ThumbnailStage, ThumbnailStageInput
+                from app.storage.files import FileStorage
+
+                script_path = project_dir / "02_script" / "script_contract.json"
+                manifest_path = project_dir / "05_assets" / "asset_manifest.json"
+
+                script_data = await FileStorage.load_json(str(script_path))
+                manifest_data = await FileStorage.load_json(str(manifest_path))
+
+                if not script_data:
+                    return {"success": False, "error": "ScriptContract not found. Run script first."}
+                if not manifest_data:
+                    return {"success": False, "error": "AssetManifestContract not found. Run assets first."}
+
+                from app.domain.contracts import ScriptContract, AssetManifestContract
+                script_contract = ScriptContract(**script_data)
+                asset_manifest = AssetManifestContract(**manifest_data)
+
+                stage = ThumbnailStage()
+                input_data = ThumbnailStageInput(
+                    script_contract=script_contract,
+                    asset_manifest_contract=asset_manifest,
+                    workspace_root=workspace_root,
+                    project_slug=project.slug,
+                )
+                result = await stage.execute(input_data)
+                return {"success": True, "result": f"thumbnail.png generated ({result['width']}x{result['height']})"}
+
             else:
                 return {"success": False, "error": f"Unknown stage: {stage_name}"}
 
