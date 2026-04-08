@@ -81,10 +81,42 @@ class ApprovalService:
         """List pending approvals for a run."""
         try:
             cursor = await self.db.connection.execute(
-                "SELECT * FROM approvals WHERE run_id = ? AND status = 'PENDING'",
+                "SELECT * FROM approvals WHERE run_id = ? AND status = 'PENDING' ORDER BY created_at DESC",
                 (run_id,),
             )
             rows = await cursor.fetchall()
             return [Approval(**dict(row)) for row in rows]
         except Exception:
             return []
+
+    async def list_all_pending(self) -> list[Approval]:
+        """List all pending approvals."""
+        try:
+            cursor = await self.db.connection.execute(
+                "SELECT * FROM approvals WHERE status = 'PENDING' ORDER BY created_at DESC"
+            )
+            rows = await cursor.fetchall()
+            return [Approval(**dict(row)) for row in rows]
+        except Exception:
+            return []
+
+    async def get_latest_for_checkpoint(
+        self, run_id: str, checkpoint_name: str
+    ) -> Optional[Approval]:
+        """Get the latest approval record for a run/checkpoint pair."""
+        try:
+            cursor = await self.db.connection.execute(
+                """
+                SELECT * FROM approvals
+                WHERE run_id = ? AND checkpoint_name = ?
+                ORDER BY created_at DESC
+                LIMIT 1
+                """,
+                (run_id, checkpoint_name),
+            )
+            row = await cursor.fetchone()
+            if row:
+                return Approval(**dict(row))
+        except Exception:
+            pass
+        return None

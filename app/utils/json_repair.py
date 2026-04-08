@@ -38,6 +38,49 @@ def repair_json(text: str) -> str:
     except json.JSONDecodeError:
         pass
 
+    # Fix single quotes → double quotes and unquoted keys
+    def _normalize_quotes(s: str) -> str:
+        """Convert single-quoted strings and unquoted keys to valid JSON."""
+        result = []
+        i = 0
+        while i < len(s):
+            ch = s[i]
+            if ch == "'":
+                result.append('"')
+                i += 1
+                while i < len(s):
+                    c = s[i]
+                    if c == "\\":
+                        result.append(c)
+                        i += 1
+                        if i < len(s):
+                            result.append(s[i])
+                            i += 1
+                    elif c == "'":
+                        result.append('"')
+                        i += 1
+                        break
+                    elif c == '"':
+                        result.append('\\"')
+                        i += 1
+                    else:
+                        result.append(c)
+                        i += 1
+            else:
+                result.append(ch)
+                i += 1
+        normalized = "".join(result)
+        # Quote unquoted object keys: word chars before a colon
+        normalized = re.sub(r'(?<=[{,])\s*([A-Za-z_][A-Za-z0-9_]*)\s*:', r'"\1":', normalized)
+        return normalized
+
+    normalized = _normalize_quotes(text)
+    try:
+        json.loads(normalized, strict=False)
+        return normalized
+    except json.JSONDecodeError:
+        pass
+
     # Fix unescaped control characters inside JSON strings
     # Replace literal newlines/tabs inside string values with escaped versions
     def _escape_control_chars(s):

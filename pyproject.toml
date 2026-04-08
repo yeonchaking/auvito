@@ -43,6 +43,7 @@ asyncio_mode = "auto"
 filterwarnings = [
     "ignore::DeprecationWarning",
 ]
+norecursedirs = ["pytest-cache-files-*", "tmp*", ".pytest_cache", "__pycache__", ".git", "node_modules"]
 
 [tool.black]
 line-length = 120

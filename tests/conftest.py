@@ -14,7 +14,6 @@ from app.providers.fake import (
     FakeTTSProvider,
     FakeSTTProvider,
     FakeAssetProvider,
-    FakeUploadProvider,
 )
 
 
@@ -69,7 +68,3 @@ def fake_asset_provider():
     return FakeAssetProvider()
 
 
-@pytest.fixture
-def fake_upload_provider():
-    """Provide fake upload provider."""
-    return FakeUploadProvider()

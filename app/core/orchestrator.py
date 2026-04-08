@@ -2,6 +2,7 @@
 
 import uuid
 from datetime import datetime
+from decimal import Decimal
 from pathlib import Path
 from typing import Optional
 
@@ -12,7 +13,7 @@ from app.core.approval_service import ApprovalService
 from app.core.artifact_registry import ArtifactRegistry
 from app.core.cost_guardrail import CostGuardrail
 from app.core.quality_gate import QualityGateRunner
-from app.domain.enums import ProjectStatus
+from app.domain.enums import ApprovalStatus, ProjectStatus
 from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
@@ -231,18 +232,61 @@ class PipelineOrchestrator:
             # Check if approval is needed before this stage
             if stage_name in APPROVAL_CHECKPOINTS and not approve_all:
                 checkpoint = APPROVAL_CHECKPOINTS[stage_name]
-                logger.info(
-                    "Approval checkpoint reached",
-                    stage=stage_name,
-                    checkpoint=checkpoint,
+                existing_approval = await self.approvals.get_latest_for_checkpoint(
+                    run_id, checkpoint
                 )
-                results[stage_name] = {
-                    "success": False,
-                    "status": "awaiting_approval",
-                    "checkpoint": checkpoint,
-                    "message": f"Approval required for '{checkpoint}'. Use 'yt approve <id>' to continue.",
-                }
-                break
+
+                if existing_approval and existing_approval.status == ApprovalStatus.APPROVED:
+                    logger.info(
+                        "Approval already granted",
+                        stage=stage_name,
+                        checkpoint=checkpoint,
+                        approval_id=existing_approval.approval_id,
+                    )
+                elif existing_approval and existing_approval.status == ApprovalStatus.REJECTED:
+                    results[stage_name] = {
+                        "success": False,
+                        "status": "rejected",
+                        "checkpoint": checkpoint,
+                        "approval_id": existing_approval.approval_id,
+                        "message": (
+                            f"Approval '{existing_approval.approval_id}' was rejected. "
+                            "Review the project and resubmit with a new run."
+                        ),
+                    }
+                    break
+                else:
+                    approval = existing_approval or await self.approvals.create_approval(
+                        run_id=run_id,
+                        checkpoint_name=checkpoint,
+                        entity_type="stage",
+                        entity_ref=f"{slug}:{stage_name}",
+                        estimated_cost_usd=Decimal("0.00"),
+                        summary=(
+                            f"Approval required before '{stage_name}' stage for project '{slug}'."
+                        ),
+                    )
+
+                    logger.info(
+                        "Approval checkpoint reached",
+                        stage=stage_name,
+                        checkpoint=checkpoint,
+                        approval_id=approval.approval_id,
+                    )
+                    results[stage_name] = {
+                        "success": False,
+                        "status": "awaiting_approval",
+                        "checkpoint": checkpoint,
+                        "approval_id": approval.approval_id,
+                        "message": (
+                            f"Approval required for '{checkpoint}' "
+                            f"({approval.approval_id}). "
+                            f"Approve with 'python -m app.cli approve {approval.approval_id}' "
+                            f"then rerun with "
+                            f"'python -m app.cli pipeline-run {slug} --from {stage_name} --run-id {run_id}'."
+                        ),
+                    }
+                    break
 
             try:
                 result = await self._execute_stage(
@@ -486,6 +530,15 @@ class PipelineOrchestrator:
                     project_slug=project.slug,
                 )
                 result = await stage.execute(input_data)
+
+                # ── Collect all final outputs into RESULT/{N}. {title}/ ──────
+                from app.utils.result_collector import collect_results
+                collect_results(
+                    workspace_root=workspace_root,
+                    project_slug=project.slug,
+                    title=script_contract.title,
+                )
+
                 return {"success": True, "result": f"thumbnail.png generated ({result['width']}x{result['height']})"}
 
             else:

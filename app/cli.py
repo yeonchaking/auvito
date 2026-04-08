@@ -21,13 +21,90 @@ console = Console()
 
 
 @app.command()
+def new():
+    """새 영상 프로젝트를 대화형으로 만듭니다."""
+
+    console.print()
+    console.print("[bold cyan]🎬 YouTube 영상 제작 파이프라인[/bold cyan]")
+    console.print("[dim]질문에 답하면 프로젝트가 생성됩니다.[/dim]")
+    console.print()
+
+    # ── 질문 1: 주제 ──────────────────────────────────────────────
+    topic = typer.prompt("📌 어떤 주제로 영상을 만들까요?").strip()
+    while not topic:
+        console.print("[red]주제를 입력해주세요.[/red]")
+        topic = typer.prompt("📌 어떤 주제로 영상을 만들까요?").strip()
+
+    # ── 질문 2: 채널 이름 ─────────────────────────────────────────
+    channel = typer.prompt("📺 채널 이름은 무엇인가요?", default="My Channel").strip()
+
+    # ── 질문 3: 카테고리 ──────────────────────────────────────────
+    console.print("[dim]예: 역사, 과학, 미스터리, 요리, 여행, IT, 경제 ...[/dim]")
+    niche = typer.prompt("🎯 카테고리를 알려주세요", default="General").strip()
+
+    # ── 질문 4: 영상 길이 ─────────────────────────────────────────
+    console.print("[dim]초 단위 입력 (예: 480 = 8분, 600 = 10분)[/dim]")
+    duration_str = typer.prompt("⏱  목표 영상 길이 (초)", default="480")
+    try:
+        duration = int(duration_str)
+    except ValueError:
+        console.print("[yellow]숫자가 아니어서 기본값 480초로 설정합니다.[/yellow]")
+        duration = 480
+
+    # ── 확인 ──────────────────────────────────────────────────────
+    console.print()
+    console.print("[bold]── 입력 확인 ──────────────────────────────[/bold]")
+    console.print(f"  주제    : [cyan]{topic}[/cyan]")
+    console.print(f"  채널    : [cyan]{channel}[/cyan]")
+    console.print(f"  카테고리: [cyan]{niche}[/cyan]")
+    console.print(f"  길이    : [cyan]{duration}초 ({duration // 60}분 {duration % 60}초)[/cyan]")
+    console.print()
+
+    ok = typer.confirm("✅ 이대로 프로젝트를 생성할까요?", default=True)
+    if not ok:
+        console.print("[yellow]취소되었습니다.[/yellow]")
+        raise typer.Exit()
+
+    # ── 프로젝트 생성 ─────────────────────────────────────────────
+    async def _run():
+        container = create_app()
+        await container.init()
+        try:
+            project = await container.orchestrator.projects.create(
+                title_seed=topic,
+                channel_name=channel,
+                niche=niche,
+                target_duration_sec=duration,
+            )
+            console.print(
+                f"\n[green]✓[/green] 프로젝트 생성 완료: [bold]{project.slug}[/bold]"
+            )
+
+            result = await container.orchestrator.run_stage(
+                slug=project.slug,
+                stage_name="intake",
+            )
+            if result.get("success"):
+                console.print("[green]✓[/green] 워크스페이스 초기화 완료")
+                console.print()
+                console.print(f"[dim]다음 명령어로 파이프라인을 실행하세요:[/dim]")
+                console.print(f"  [bold]python -m app.cli pipeline-run {project.slug}[/bold]")
+            else:
+                console.print(f"[yellow]⚠[/yellow] 워크스페이스 초기화 실패: {result.get('error', 'unknown')}")
+        finally:
+            await container.shutdown()
+
+    asyncio.run(_run())
+
+
+@app.command()
 def project_create(
     topic: str = typer.Option(..., help="Project topic/title seed"),
     channel: str = typer.Option("My Channel", help="Channel name"),
     niche: str = typer.Option("General", help="Content niche"),
     duration: int = typer.Option(480, help="Target duration in seconds"),
 ):
-    """Create a new project."""
+    """Create a new project (non-interactive). Use 'new' for guided setup."""
     async def _run():
         container = create_app()
         await container.init()
@@ -236,16 +313,13 @@ def pipeline_run(
             console.print(f"[cyan]Pipeline Run:[/cyan] {slug}")
             console.print(f"[cyan]Mode:[/cyan] {mode}")
 
-            if run_all:
-                from_stage = None
-                until_stage_val = None
-            else:
-                until_stage_val = until_stage
+            effective_from_stage = None if run_all else from_stage
+            effective_until_stage = None if run_all else until_stage
 
             result = await container.orchestrator.run_pipeline(
                 slug=slug,
-                from_stage=from_stage,
-                until_stage=until_stage_val,
+                from_stage=effective_from_stage,
+                until_stage=effective_until_stage,
                 mode=mode,
                 run_id=run_id,
                 approve_all=approve_all,
@@ -257,7 +331,7 @@ def pipeline_run(
                 if stage_result.get("success"):
                     console.print(f"  [green]✓[/green] {stage_name}: {stage_result.get('result', 'done')}")
                 elif stage_result.get("status") == "awaiting_approval":
-                    console.print(f"  [yellow]⏸[/yellow] {stage_name}: {stage_result.get('message', 'awaiting approval')}")
+                    console.print(f"  [yellow]WAIT[/yellow] {stage_name}: {stage_result.get('message', 'awaiting approval')}")
                 else:
                     console.print(f"  [red]✗[/red] {stage_name}: {stage_result.get('error', 'failed')}")
 
@@ -277,14 +351,14 @@ def pipeline_run(
 
 
 @app.command()
-def approvals_list(slug: Optional[str] = typer.Argument(None)):
+def approvals_list(run_id: Optional[str] = typer.Argument(None, help="Optional run ID filter")):
     """List pending approvals."""
     async def _run():
         container = create_app()
         await container.init()
         try:
-            if slug:
-                approvals = await container.orchestrator.approvals.list_pending(slug)
+            if run_id:
+                approvals = await container.orchestrator.approvals.list_pending(run_id)
             else:
                 approvals = await container.orchestrator.approvals.list_all_pending()
 
