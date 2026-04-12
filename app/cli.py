@@ -42,14 +42,8 @@ def new():
     console.print("[dim]예: 역사, 과학, 미스터리, 요리, 여행, IT, 경제 ...[/dim]")
     niche = typer.prompt("🎯 카테고리를 알려주세요", default="General").strip()
 
-    # ── 질문 4: 영상 길이 ─────────────────────────────────────────
-    console.print("[dim]초 단위 입력 (예: 480 = 8분, 600 = 10분)[/dim]")
-    duration_str = typer.prompt("⏱  목표 영상 길이 (초)", default="480")
-    try:
-        duration = int(duration_str)
-    except ValueError:
-        console.print("[yellow]숫자가 아니어서 기본값 480초로 설정합니다.[/yellow]")
-        duration = 480
+    # 영상 길이는 1분(60초) 고정 — 쇼츠
+    duration = 60
 
     # ── 확인 ──────────────────────────────────────────────────────
     console.print()
@@ -57,7 +51,7 @@ def new():
     console.print(f"  주제    : [cyan]{topic}[/cyan]")
     console.print(f"  채널    : [cyan]{channel}[/cyan]")
     console.print(f"  카테고리: [cyan]{niche}[/cyan]")
-    console.print(f"  길이    : [cyan]{duration}초 ({duration // 60}분 {duration % 60}초)[/cyan]")
+    console.print(f"  길이    : [cyan]1분 쇼츠 (고정)[/cyan]")
     console.print()
 
     ok = typer.confirm("✅ 이대로 프로젝트를 생성할까요?", default=True)
@@ -80,17 +74,37 @@ def new():
                 f"\n[green]✓[/green] 프로젝트 생성 완료: [bold]{project.slug}[/bold]"
             )
 
-            result = await container.orchestrator.run_stage(
+            intake = await container.orchestrator.run_stage(
                 slug=project.slug,
                 stage_name="intake",
             )
-            if result.get("success"):
-                console.print("[green]✓[/green] 워크스페이스 초기화 완료")
+            if not intake.get("success"):
+                console.print(f"[red]✗[/red] 워크스페이스 초기화 실패: {intake.get('error', 'unknown')}")
+                return
+
+            console.print("[green]✓[/green] 워크스페이스 초기화 완료")
+            console.print()
+            console.print("[bold cyan]▶ 파이프라인 자동 시작...[/bold cyan]")
+            console.print()
+
+            pipeline = await container.orchestrator.run_pipeline(
+                slug=project.slug,
+                approve_all=True,
+            )
+
+            console.print()
+            for stage_name, stage_result in pipeline.get("stages", {}).items():
+                if stage_result.get("success"):
+                    console.print(f"  [green]✓[/green] {stage_name}: {stage_result.get('result', 'done')}")
+                else:
+                    console.print(f"  [red]✗[/red] {stage_name}: {stage_result.get('error', 'failed')}")
+
+            if pipeline.get("completed"):
                 console.print()
-                console.print(f"[dim]다음 명령어로 파이프라인을 실행하세요:[/dim]")
-                console.print(f"  [bold]python -m app.cli pipeline-run {project.slug}[/bold]")
+                console.print("[bold green]✓ 완료! RESULT 폴더에서 산출물을 확인하세요.[/bold green]")
             else:
-                console.print(f"[yellow]⚠[/yellow] 워크스페이스 초기화 실패: {result.get('error', 'unknown')}")
+                console.print()
+                console.print(f"[yellow]파이프라인이 중간에 멈췄습니다. Run ID: {pipeline.get('run_id')}[/yellow]")
         finally:
             await container.shutdown()
 
@@ -302,7 +316,7 @@ def pipeline_run(
     run_id: Optional[str] = typer.Option(None, help="Specific run ID to resume"),
     run_all: bool = typer.Option(False, "--all", help="Run all stages"),
     approve_all: bool = typer.Option(
-        False, "--approve-all", help="Auto-approve non-upload checkpoints"
+        True, "--approve-all", help="Auto-approve non-upload checkpoints"
     ),
 ):
     """Run pipeline for a project."""

@@ -31,10 +31,7 @@ STAGE_ORDER = [
 ]
 
 # Approval checkpoints that pause execution
-APPROVAL_CHECKPOINTS = {
-    "script": "script",
-    "storyboard": "storyboard",
-}
+APPROVAL_CHECKPOINTS: dict = {}  # 승인 체크포인트 비활성화 — 파이프라인 자동 진행
 
 
 class PipelineOrchestrator:
@@ -531,12 +528,13 @@ class PipelineOrchestrator:
                 )
                 result = await stage.execute(input_data)
 
-                # ── Collect all final outputs into RESULT/{N}. {title}/ ──────
+                # ── Collect all final outputs into RESULT/{category}/{N}. {title}/ ──
                 from app.utils.result_collector import collect_results
                 collect_results(
                     workspace_root=workspace_root,
                     project_slug=project.slug,
                     title=script_contract.title,
+                    niche=project.niche,
                 )
 
                 return {"success": True, "result": f"thumbnail.png generated ({result['width']}x{result['height']})"}

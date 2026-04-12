@@ -380,8 +380,19 @@ class FFmpegService:
         Returns:
             True if successful, False otherwise
         """
+        import shutil as _shutil
+        import uuid as _uuid
+
+        # FFmpeg subtitles= 필터는 경로에 한글/특수문자가 있으면 실패함.
+        # 자막 파일을 ASCII 임시 경로로 복사해서 처리.
+        _tmp_srt_dir = Path(tempfile.gettempdir()) / f"srt_{_uuid.uuid4().hex[:8]}"
+        _tmp_srt_dir.mkdir(parents=True, exist_ok=True)
+        _tmp_srt = _tmp_srt_dir / "subtitles.srt"
+        _shutil.copy2(subtitle_path, str(_tmp_srt))
+        safe_sub_path = str(_tmp_srt)
+
         try:
-            subtitle_path_escaped = subtitle_path.replace("\\", "/").replace(":", "\\:")
+            subtitle_path_escaped = safe_sub_path.replace("\\", "/").replace(":", "\\:")
 
             if font_path:
                 font_path_escaped = font_path.replace("\\", "/").replace(":", "\\:")
@@ -425,6 +436,9 @@ class FFmpegService:
                 error=str(e),
             )
             return False
+        finally:
+            # 임시 자막 파일 정리
+            _shutil.rmtree(str(_tmp_srt_dir), ignore_errors=True)
 
     async def get_duration(self, file_path: str) -> Optional[float]:
         """Get video duration in seconds using ffprobe.
@@ -515,7 +529,7 @@ class FFmpegService:
             temp_clips = []
 
             try:
-                with tempfile.TemporaryDirectory() as temp_dir:
+                with tempfile.TemporaryDirectory(ignore_cleanup_errors=True) as temp_dir:
                     temp_dir_path = Path(temp_dir)
 
                     logger.info(
@@ -598,8 +612,10 @@ class FFmpegService:
                             font_path=font_path,
                         )
                         if not success:
-                            logger.error("Failed to burn subtitles")
-                            return False
+                            # 자막 번 실패 시 자막 없이 영상 완성 (SRT 파일은 따로 있음)
+                            logger.warning("Subtitle burn failed — continuing without burned-in subtitles")
+                            import shutil
+                            shutil.copy2(audio_path, output_path)
                     else:
                         logger.warning("Subtitles file empty or missing, skipping burn")
                         import shutil

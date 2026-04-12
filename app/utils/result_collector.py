@@ -1,4 +1,4 @@
-"""Result collector: gathers final outputs into workspace/RESULT/{N}. {title}/"""
+"""Result collector: gathers final outputs into workspace/RESULT/{category}/{N}. {title}/"""
 
 import re
 import shutil
@@ -18,18 +18,21 @@ _COLLECT_TARGETS = [
 ]
 
 
-def collect_results(workspace_root: str, project_slug: str, title: str) -> str:
-    """Copy final artifacts into RESULT/{N}. {title}/.
+def collect_results(workspace_root: str, project_slug: str, title: str, niche: str = "General") -> str:
+    """Copy final artifacts into RESULT/{category}/{N}. {title}/.
 
     Args:
         workspace_root: Workspace root directory path
         project_slug: Project slug (folder name under projects/)
         title: Human-readable video title (used for folder name)
+        niche: Content category (used as parent folder under RESULT/)
 
     Returns:
         Absolute path to the created result folder.
     """
-    result_root = Path(workspace_root) / "RESULT"
+    # ── 카테고리 폴더 ─────────────────────────────────────────────
+    safe_niche = re.sub(r'[\\/:*?"<>|]', "", niche).strip() or "General"
+    result_root = Path(workspace_root) / "RESULT" / safe_niche
     result_root.mkdir(parents=True, exist_ok=True)
 
     # ── Determine next folder number ─────────────────────────────────────────
