@@ -1,18 +1,99 @@
 """Typer CLI application."""
 
 import asyncio
+from pathlib import Path
 from typing import Optional
 from datetime import datetime
 
 import typer
 from rich.console import Console
 from rich.table import Table
+from rich.panel import Panel
+from rich.progress import (
+    Progress,
+    SpinnerColumn,
+    TextColumn,
+    BarColumn,
+    TimeElapsedColumn,
+)
+from rich.text import Text
+from rich import box
 
 from app.main import create_app
 from app.domain.enums import ProjectStatus, StageStatus, ApprovalStatus
 
 app = typer.Typer(help="YouTube content production pipeline")
 console = Console()
+
+# 파이프라인 스테이지 순서 (intake 제외)
+PIPELINE_STAGES = [
+    "benchmark",
+    "script",
+    "voice",
+    "storyboard",
+    "assets",
+    "render",
+    "thumbnail",
+]
+
+STAGE_LABELS = {
+    "benchmark": "벤치마크 분석",
+    "script"   : "스크립트 생성",
+    "voice"    : "내레이션 녹음",
+    "storyboard": "스토리보드 구성",
+    "assets"   : "이미지 생성",
+    "render"   : "영상 렌더링",
+    "thumbnail": "썸네일 제작",
+}
+
+# ── 에러 안내 ─────────────────────────────────────────────────────────────────
+
+ERROR_HINTS: list[tuple[str, str]] = [
+    ("ANTHROPIC_API_KEY",  "Anthropic API 키가 없거나 잘못됐어요. .env 파일의 ANTHROPIC_API_KEY를 확인해주세요."),
+    ("OPENAI_API_KEY",     "OpenAI API 키가 없거나 잘못됐어요. .env 파일의 OPENAI_API_KEY를 확인해주세요."),
+    ("rate_limit",         "API 요청 한도를 초과했어요. 잠시 후 다시 시도하거나 유료 플랜을 확인해주세요."),
+    ("content_policy",     "이미지 생성 중 콘텐츠 정책 위반이 발생했어요. 더 중립적인 주제로 다시 시도해주세요."),
+    ("ffmpeg",             "FFmpeg 처리 중 오류가 생겼어요. FFmpeg 설치 여부를 확인해주세요 (ffmpeg -version)."),
+    ("WinError 32",        "파일이 다른 프로세스에 잠겨 있어요. 잠시 기다린 후 resume 명령으로 재시도해주세요."),
+    ("No such file",       "필요한 파일이 없어요. 이전 스테이지가 완료됐는지 stage-status 명령으로 확인해주세요."),
+    ("ConnectionError",    "네트워크 연결 오류예요. 인터넷 연결을 확인하고 resume으로 재시도해주세요."),
+    ("TimeoutError",       "API 응답 시간이 초과됐어요. resume 명령으로 재시도해주세요."),
+]
+
+
+def _friendly_error(error_text: str) -> str:
+    """에러 메시지를 사용자 친화적으로 변환."""
+    lowered = error_text.lower()
+    for keyword, hint in ERROR_HINTS:
+        if keyword.lower() in lowered:
+            return hint
+    return f"오류가 발생했어요: {error_text[:120]}"
+
+
+def _print_error_panel(stage: str, error: str, slug: str) -> None:
+    """스테이지 실패 시 에러 패널 출력."""
+    hint = _friendly_error(error)
+    body = Text()
+    body.append("스테이지  : ", style="dim")
+    body.append(f"{STAGE_LABELS.get(stage, stage)}\n", style="bold red")
+    body.append("원인      : ", style="dim")
+    body.append(f"{hint}\n\n", style="yellow")
+    body.append("재시도    : ", style="dim")
+    body.append(f"python -m app.cli resume {slug}", style="cyan bold")
+    console.print(Panel(body, title="[bold red]✗ 스테이지 실패[/bold red]", border_style="red"))
+
+
+def _print_complete_banner(slug: str, result_path: Optional[str] = None) -> None:
+    """완료 배너 출력."""
+    body = Text()
+    body.append("🎉 영상 제작이 완료됐어요!\n\n", style="bold green")
+    if result_path:
+        body.append("결과물 위치: ", style="dim")
+        body.append(f"{result_path}\n", style="cyan bold")
+    body.append("\n")
+    body.append("다음 단계  : ", style="dim")
+    body.append("RESULT 폴더에서 draft.mp4 파일을 확인하세요.", style="white")
+    console.print(Panel(body, title="[bold green]✓ 완료[/bold green]", border_style="green"))
 
 
 # ============================================================================
@@ -22,7 +103,7 @@ console = Console()
 
 @app.command()
 def new():
-    """새 영상 프로젝트를 대화형으로 만듭니다."""
+    """새 영상 프로젝트를 대화형으로 만들고 파이프라인을 실행합니다."""
 
     console.print()
     console.print("[bold cyan]🎬 YouTube 영상 제작 파이프라인[/bold cyan]")
@@ -59,11 +140,12 @@ def new():
         console.print("[yellow]취소되었습니다.[/yellow]")
         raise typer.Exit()
 
-    # ── 프로젝트 생성 ─────────────────────────────────────────────
+    # ── 실행 ──────────────────────────────────────────────────────
     async def _run():
         container = create_app()
         await container.init()
         try:
+            # 프로젝트 생성
             project = await container.orchestrator.projects.create(
                 title_seed=topic,
                 channel_name=channel,
@@ -71,9 +153,10 @@ def new():
                 target_duration_sec=duration,
             )
             console.print(
-                f"\n[green]✓[/green] 프로젝트 생성 완료: [bold]{project.slug}[/bold]"
+                f"\n[green]✓[/green] 프로젝트 생성: [bold]{project.slug}[/bold]"
             )
 
+            # intake
             intake = await container.orchestrator.run_stage(
                 slug=project.slug,
                 stage_name="intake",
@@ -84,27 +167,139 @@ def new():
 
             console.print("[green]✓[/green] 워크스페이스 초기화 완료")
             console.print()
-            console.print("[bold cyan]▶ 파이프라인 자동 시작...[/bold cyan]")
-            console.print()
 
-            pipeline = await container.orchestrator.run_pipeline(
+            # ── 스테이지별 Progress ─────────────────────────────────
+            await _run_pipeline_with_progress(
+                container=container,
                 slug=project.slug,
-                approve_all=True,
+                niche=niche,
             )
 
-            console.print()
-            for stage_name, stage_result in pipeline.get("stages", {}).items():
-                if stage_result.get("success"):
-                    console.print(f"  [green]✓[/green] {stage_name}: {stage_result.get('result', 'done')}")
-                else:
-                    console.print(f"  [red]✗[/red] {stage_name}: {stage_result.get('error', 'failed')}")
+        finally:
+            await container.shutdown()
 
-            if pipeline.get("completed"):
-                console.print()
-                console.print("[bold green]✓ 완료! RESULT 폴더에서 산출물을 확인하세요.[/bold green]")
+    asyncio.run(_run())
+
+
+async def _run_pipeline_with_progress(container, slug: str, niche: str = "General") -> None:
+    """스테이지 하나씩 실행하며 Rich 프로그레스 바로 진행 표시."""
+
+    total = len(PIPELINE_STAGES)
+    failed_stage: Optional[str] = None
+    result_path: Optional[str] = None
+
+    with Progress(
+        SpinnerColumn(),
+        TextColumn("[progress.description]{task.description}"),
+        BarColumn(bar_width=30),
+        TextColumn("[progress.percentage]{task.percentage:>3.0f}%"),
+        TimeElapsedColumn(),
+        console=console,
+        transient=False,
+    ) as progress:
+        task = progress.add_task("[cyan]파이프라인 시작 중...", total=total)
+
+        for i, stage_name in enumerate(PIPELINE_STAGES):
+            label = STAGE_LABELS.get(stage_name, stage_name)
+            progress.update(
+                task,
+                description=f"[cyan]{i + 1}/{total}[/cyan] {label} 진행 중...",
+                completed=i,
+            )
+
+            result = await container.orchestrator.run_stage(
+                slug=slug,
+                stage_name=stage_name,
+            )
+
+            if result.get("success"):
+                progress.update(
+                    task,
+                    description=f"[green]{i + 1}/{total}[/green] {label} [green]완료[/green]",
+                    completed=i + 1,
+                )
+                # render 스테이지 완료 시 결과물 경로 수집
+                if stage_name == "render":
+                    result_data = result.get("result", "")
+                    if isinstance(result_data, dict):
+                        result_path = result_data.get("output_path")
+                    elif isinstance(result_data, str) and result_data:
+                        result_path = result_data
+                    if not result_path:
+                        # RESULT 폴더에서 추론
+                        from app.settings import load_settings
+                        settings, _ = load_settings()
+                        result_path = str(Path(settings.workspace_root) / "RESULT")
             else:
+                error = result.get("error", "알 수 없는 오류")
+                progress.update(
+                    task,
+                    description=f"[red]{i + 1}/{total}[/red] {label} [red]실패[/red]",
+                    completed=i + 1,
+                )
+                failed_stage = stage_name
+                progress.stop()
+
                 console.print()
-                console.print(f"[yellow]파이프라인이 중간에 멈췄습니다. Run ID: {pipeline.get('run_id')}[/yellow]")
+                _print_error_panel(stage_name, error, slug)
+                return
+
+        # 전체 완료
+        progress.update(task, description=f"[green]{total}/{total} 전체 완료[/green]", completed=total)
+
+    console.print()
+    _print_complete_banner(slug, result_path)
+
+
+@app.command()
+def resume(
+    slug: str = typer.Argument(..., help="재시작할 프로젝트 슬러그"),
+):
+    """중단된 프로젝트를 마지막 실패 스테이지부터 재시작합니다."""
+
+    console.print()
+    console.print(f"[bold cyan]▶ 파이프라인 재시작: {slug}[/bold cyan]")
+    console.print()
+
+    async def _run():
+        container = create_app()
+        await container.init()
+        try:
+            project = await container.orchestrator.projects.get(slug)
+            if not project:
+                console.print("[red]✗[/red] 프로젝트를 찾을 수 없어요.")
+                raise typer.Exit(1)
+
+            # 완료된 스테이지를 파악 — 스테이지 디렉터리 존재 여부로 판단
+            from app.settings import load_settings
+            settings, _ = load_settings()
+            ws = Path(settings.workspace_root) / "projects" / slug
+
+            completed: set[str] = set()
+            for stage in PIPELINE_STAGES:
+                stage_dir = ws / stage
+                # 스테이지 디렉터리가 있고 안에 파일이 있으면 완료로 간주
+                if stage_dir.exists() and any(stage_dir.rglob("*.json")):
+                    completed.add(stage)
+
+            remaining = [s for s in PIPELINE_STAGES if s not in completed]
+
+            if not remaining:
+                console.print("[green]✓[/green] 이미 모든 스테이지가 완료됐어요.")
+                _print_complete_banner(slug, str(Path(settings.workspace_root) / "RESULT"))
+                return
+
+            first_pending = remaining[0]
+            label = STAGE_LABELS.get(first_pending, first_pending)
+            console.print(f"  완료된 스테이지: [green]{', '.join(completed) or '없음'}[/green]")
+            console.print(f"  재시작 지점    : [cyan]{label}[/cyan]")
+            console.print()
+
+            await _run_pipeline_with_progress(
+                container=container,
+                slug=slug,
+            )
+
         finally:
             await container.shutdown()
 
@@ -271,7 +466,8 @@ def stage_run(
             if result.get("success"):
                 console.print(f"[green]✓[/green] Stage '{stage}' completed: {result.get('result', '')}")
             else:
-                console.print(f"[red]✗[/red] Stage '{stage}' failed: {result.get('error', 'unknown')}")
+                error = result.get("error", "unknown")
+                _print_error_panel(stage, error, slug)
                 raise typer.Exit(1)
         finally:
             await container.shutdown()
@@ -291,9 +487,31 @@ def stage_status(slug: str = typer.Argument(..., help="Project slug")):
                 console.print("[red]✗[/red] Project not found")
                 raise typer.Exit(1)
 
-            console.print(f"[cyan]Project:[/cyan] {slug}")
-            console.print(f"[cyan]Current Stage:[/cyan] {project.current_stage or 'None'}")
-            console.print(f"[cyan]Status:[/cyan] {project.status.value}")
+            from app.settings import load_settings
+            settings, _ = load_settings()
+            ws = Path(settings.workspace_root) / "projects" / slug
+
+            table = Table(title=f"Stage Status: {slug}", box=box.ROUNDED)
+            table.add_column("스테이지", style="cyan")
+            table.add_column("상태", style="white")
+            table.add_column("산출물")
+
+            for stage_name in PIPELINE_STAGES:
+                label = STAGE_LABELS.get(stage_name, stage_name)
+                stage_dir = ws / stage_name
+                artifacts = list(stage_dir.rglob("*.json")) if stage_dir.exists() else []
+
+                if artifacts:
+                    status_text = Text("✓ 완료", style="green")
+                    artifact_str = f"{len(artifacts)}개 파일"
+                else:
+                    status_text = Text("○ 대기", style="dim")
+                    artifact_str = ""
+
+                table.add_row(label, status_text, artifact_str)
+
+            console.print(table)
+            console.print(f"\n[dim]프로젝트 상태: {project.status.value}[/dim]")
         finally:
             await container.shutdown()
 
@@ -347,12 +565,15 @@ def pipeline_run(
                 elif stage_result.get("status") == "awaiting_approval":
                     console.print(f"  [yellow]WAIT[/yellow] {stage_name}: {stage_result.get('message', 'awaiting approval')}")
                 else:
-                    console.print(f"  [red]✗[/red] {stage_name}: {stage_result.get('error', 'failed')}")
+                    error = stage_result.get("error", "failed")
+                    console.print(f"  [red]✗[/red] {stage_name}: {error}")
 
             if result.get("completed"):
-                console.print("\n[green]✓ Pipeline completed successfully[/green]")
+                console.print()
+                _print_complete_banner(slug)
             else:
-                console.print("\n[yellow]Pipeline stopped (check results above)[/yellow]")
+                console.print()
+                console.print(f"[yellow]파이프라인이 중단됐어요. 재시도: python -m app.cli resume {slug}[/yellow]")
         finally:
             await container.shutdown()
 
@@ -538,8 +759,6 @@ def artifact_list(
     stage: Optional[str] = typer.Option(None, help="Filter by stage"),
 ):
     """List artifacts for project."""
-    from pathlib import Path
-
     workspace = Path("workspace") / "projects" / slug
     if not workspace.exists():
         console.print("[red]✗[/red] Project workspace not found")
