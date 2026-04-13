@@ -34,6 +34,7 @@ class StoryboardStageInput:
         project_slug: str,
         anthropic_api_key: Optional[str] = None,
         aspect_ratio: str = "16:9",
+        niche: str = "General",
     ):
         """Initialize storyboard stage input.
 
@@ -44,6 +45,7 @@ class StoryboardStageInput:
             project_slug: Project slug (used for output directory naming)
             anthropic_api_key: Optional Anthropic API key
             aspect_ratio: Target aspect ratio (default: 16:9)
+            niche: Content category (e.g. 역사, 과학, 미스터리)
         """
         self.script_contract = script_contract
         self.narration_contract = narration_contract
@@ -51,6 +53,7 @@ class StoryboardStageInput:
         self.project_slug = project_slug
         self.anthropic_api_key = anthropic_api_key
         self.aspect_ratio = aspect_ratio
+        self.niche = niche
 
 
 class StoryboardStage(BaseStage):
@@ -121,7 +124,7 @@ class StoryboardStage(BaseStage):
             narration_path=str(
                 workspace / "03_voice" / "narration_contract.json"
             ),
-            niche=script_contract.run_id,  # Use run_id as niche placeholder
+            niche=input_data.niche,
         )
 
         # Create provider context

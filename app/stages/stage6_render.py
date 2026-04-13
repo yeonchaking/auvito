@@ -151,22 +151,28 @@ class RenderStage(BaseStage):
             durations = []
             motion_presets = []
 
+            last_valid_uri: str | None = None
+
             for item in timeline_items:
                 asset = self._find_asset(item.asset_id, asset_manifest_contract)
                 if not asset:
-                    logger.warning(
-                        "Asset not found, using black frame",
-                        asset_id=item.asset_id,
-                    )
-                    black_frame_path = str(
-                        render_dir / f"black_frame_{item.item_id}.png"
-                    )
-                    if not await self._create_black_frame(black_frame_path):
-                        raise ValueError(
-                            f"Failed to create black frame for item {item.item_id}"
+                    # _build_timeline already resolved adjacent fallbacks; this is
+                    # a last-resort safety net. Reuse the last successfully resolved URI.
+                    if last_valid_uri:
+                        logger.warning(
+                            "Asset not found in manifest — reusing last valid asset",
+                            asset_id=item.asset_id,
                         )
-                    image_paths.append(black_frame_path)
+                        image_paths.append(last_valid_uri)
+                    else:
+                        logger.error(
+                            "Asset not found and no fallback available — skipping item",
+                            asset_id=item.asset_id,
+                        )
+                        # Skip this item to avoid a black frame
+                        continue
                 else:
+                    last_valid_uri = asset.uri
                     image_paths.append(asset.uri)
 
                 durations.append(item.end_sec - item.start_sec)
@@ -260,19 +266,44 @@ class RenderStage(BaseStage):
         """
         timeline = []
 
-        for shot in storyboard_contract.shots:
-            asset = None
-            for ast in asset_manifest_contract.selected_assets:
-                if ast.shot_id == shot.shot_id:
-                    asset = ast
-                    break
+        # Build shot→asset mapping first
+        shot_asset_map: dict[str, object] = {}
+        for ast in asset_manifest_contract.selected_assets:
+            shot_asset_map[ast.shot_id] = ast
+
+        shots = storyboard_contract.shots
+
+        for i, shot in enumerate(shots):
+            asset = shot_asset_map.get(shot.shot_id)
 
             if not asset:
-                logger.warning(
-                    "No asset found for shot",
-                    shot_id=shot.shot_id,
-                )
-                continue
+                # Try to reuse the nearest available asset (prefer previous, then next)
+                fallback_asset = None
+                for j in range(i - 1, -1, -1):
+                    candidate = shot_asset_map.get(shots[j].shot_id)
+                    if candidate:
+                        fallback_asset = candidate
+                        break
+                if not fallback_asset:
+                    for j in range(i + 1, len(shots)):
+                        candidate = shot_asset_map.get(shots[j].shot_id)
+                        if candidate:
+                            fallback_asset = candidate
+                            break
+
+                if fallback_asset:
+                    logger.warning(
+                        "No asset found for shot — reusing adjacent asset",
+                        shot_id=shot.shot_id,
+                        fallback_asset_id=fallback_asset.asset_id,
+                    )
+                    asset = fallback_asset
+                else:
+                    logger.warning(
+                        "No asset found for shot and no adjacent asset available — skipping",
+                        shot_id=shot.shot_id,
+                    )
+                    continue
 
             motion_preset = shot.motion_hint or "static"
 
@@ -310,28 +341,6 @@ class RenderStage(BaseStage):
                 return asset
         return None
 
-    async def _create_black_frame(self, output_path: str) -> bool:
-        """Create a black 1920x1080 image for missing assets.
-
-        Args:
-            output_path: Path to save black frame
-
-        Returns:
-            True if successful, False otherwise
-        """
-        try:
-            from PIL import Image
-
-            img = Image.new("RGB", (1920, 1080), color=(0, 0, 0))
-            img.save(output_path)
-            return True
-        except Exception as e:
-            logger.error(
-                "Black frame creation failed",
-                output=output_path,
-                error=str(e),
-            )
-            return False
 
     def _create_render_plan(
         self,

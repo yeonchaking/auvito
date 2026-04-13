@@ -425,6 +425,7 @@ class PipelineOrchestrator:
                     workspace_root=workspace_root,
                     project_slug=project.slug,
                     anthropic_api_key=self.settings.anthropic_api_key if self.settings else None,
+                    niche=project.niche,
                 )
                 result = await stage.execute(input_data)
                 return {"success": True, "result": "StoryboardContract generated"}

@@ -194,13 +194,13 @@ class AnthropicNarrativeProvider:
         except Exception as e:
             import traceback
             logger.error(
-                "Script generation failed",
+                "Script generation failed — falling back to template script",
                 error=str(e),
                 error_type=type(e).__name__,
                 traceback=traceback.format_exc(),
                 checkpoint_id=ctx.idempotency_key,
             )
-            raise ValueError(f"Script generation failed: {str(e)}") from e
+            return self._create_fallback_script(req, ctx)
 
     async def _call_strategist(
         self,
@@ -598,11 +598,13 @@ class AnthropicNarrativeProvider:
 
         except Exception as e:
             logger.error(
-                "Storyboard generation failed",
+                "Storyboard generation failed — falling back to template storyboard",
                 error=str(e),
                 checkpoint_id=ctx.idempotency_key,
             )
-            raise ValueError(f"Storyboard generation failed: {str(e)}") from e
+            return self._create_fallback_storyboard(
+                script_contract, narration_contract, ctx, aspect_ratio
+            )
 
     async def _call_director(
         self,

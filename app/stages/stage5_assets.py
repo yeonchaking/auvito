@@ -24,6 +24,11 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
+# Rate limit delay between image generation requests (free tier = 1 image/min).
+# Set IMAGE_RATE_LIMIT_SEC=0 via environment to disable for paid-tier accounts.
+import os as _os
+IMAGE_RATE_LIMIT_SEC: float = float(_os.environ.get("IMAGE_RATE_LIMIT_SEC", "65"))
+
 
 class AssetStageInput:
     """Input data for asset stage."""
@@ -144,7 +149,8 @@ class AssetStage(BaseStage):
             semaphore = asyncio.Semaphore(input_data.max_concurrent)
             tasks = []
 
-            for shot in storyboard_contract.shots:
+            all_shots = storyboard_contract.shots
+            for idx, shot in enumerate(all_shots):
                 unit_id = shot.shot_id
                 task = self._process_shot(
                     shot,
@@ -154,6 +160,7 @@ class AssetStage(BaseStage):
                     ctx,
                     semaphore,
                     storyboard_contract.aspect_ratio,
+                    is_last=(idx == len(all_shots) - 1),
                 )
                 tasks.append(task)
 
@@ -290,6 +297,7 @@ class AssetStage(BaseStage):
         ctx: ProviderCallContext,
         semaphore: asyncio.Semaphore,
         aspect_ratio: str,
+        is_last: bool = False,
     ):
         """Process a single shot and generate asset.
 
@@ -357,7 +365,8 @@ class AssetStage(BaseStage):
                             "Content policy violation, retrying with abstract prompt",
                             shot_id=unit_id,
                         )
-                        await asyncio.sleep(65)
+                        if IMAGE_RATE_LIMIT_SEC > 0:
+                            await asyncio.sleep(IMAGE_RATE_LIMIT_SEC)
                         safe_prompt = (
                             f"Abstract historical Korean illustration, symbolic artistic composition, "
                             f"muted earth tones, traditional ink painting style, documentary aesthetic, "
@@ -372,7 +381,14 @@ class AssetStage(BaseStage):
                         generated_asset = await asset_provider.generate_image(safe_req, ctx)
                     else:
                         raise
-                await asyncio.sleep(65)
+                # Rate limit: skip sleep on last shot to save time
+                if IMAGE_RATE_LIMIT_SEC > 0 and not is_last:
+                    logger.debug(
+                        "Rate limit wait",
+                        delay_sec=IMAGE_RATE_LIMIT_SEC,
+                        shot_id=unit_id,
+                    )
+                    await asyncio.sleep(IMAGE_RATE_LIMIT_SEC)
 
                 # Update checkpoint
                 unit_state.status = "COMPLETED"
