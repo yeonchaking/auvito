@@ -360,6 +360,31 @@ class FFmpegService:
             )
             return False
 
+    @staticmethod
+    def _ascii_temp_copy(src_path: str) -> tuple[str, str]:
+        """Copy a file to a guaranteed-ASCII temp path for FFmpeg compatibility.
+
+        FFmpeg's ``subtitles=`` filter fails on Windows when the path contains
+        non-ASCII characters (Korean, spaces with special chars, etc.).
+        Returns (safe_path, tmp_dir) — caller must clean up tmp_dir.
+
+        Args:
+            src_path: Original (possibly non-ASCII) file path
+
+        Returns:
+            Tuple of (safe ASCII path string, temp dir string to remove after use)
+        """
+        import shutil as _shutil
+        import uuid as _uuid
+
+        tmp_dir = Path(tempfile.gettempdir()) / f"ffmpeg_{_uuid.uuid4().hex[:8]}"
+        tmp_dir.mkdir(parents=True, exist_ok=True)
+        # Keep the extension, use generic ASCII filename
+        ext = Path(src_path).suffix
+        safe_path = tmp_dir / f"input{ext}"
+        _shutil.copy2(src_path, str(safe_path))
+        return str(safe_path), str(tmp_dir)
+
     async def burn_subtitles(
         self,
         video_path: str,
@@ -381,15 +406,10 @@ class FFmpegService:
             True if successful, False otherwise
         """
         import shutil as _shutil
-        import uuid as _uuid
 
         # FFmpeg subtitles= 필터는 경로에 한글/특수문자가 있으면 실패함.
         # 자막 파일을 ASCII 임시 경로로 복사해서 처리.
-        _tmp_srt_dir = Path(tempfile.gettempdir()) / f"srt_{_uuid.uuid4().hex[:8]}"
-        _tmp_srt_dir.mkdir(parents=True, exist_ok=True)
-        _tmp_srt = _tmp_srt_dir / "subtitles.srt"
-        _shutil.copy2(subtitle_path, str(_tmp_srt))
-        safe_sub_path = str(_tmp_srt)
+        safe_sub_path, _tmp_dir = self._ascii_temp_copy(subtitle_path)
 
         try:
             subtitle_path_escaped = safe_sub_path.replace("\\", "/").replace(":", "\\:")
@@ -438,7 +458,63 @@ class FFmpegService:
             return False
         finally:
             # 임시 자막 파일 정리
-            _shutil.rmtree(str(_tmp_srt_dir), ignore_errors=True)
+            _shutil.rmtree(_tmp_dir, ignore_errors=True)
+
+    async def embed_subtitles_soft(
+        self,
+        video_path: str,
+        subtitle_path: str,
+        output_path: str,
+    ) -> bool:
+        """Embed subtitles as a soft (toggle-able) track using mov_text codec.
+
+        Unlike burn_subtitles(), this does NOT render text into the video pixels.
+        The subtitle track is embedded inside the MP4 container and can be toggled
+        by the player. Works on any path — no ASCII temp copy needed.
+
+        Args:
+            video_path: Path to input video
+            subtitle_path: Path to SRT subtitle file
+            output_path: Path to save output
+
+        Returns:
+            True if successful, False otherwise
+        """
+        import shutil as _shutil
+
+        cmd = [
+            "ffmpeg",
+            "-i", video_path,
+            "-i", subtitle_path,
+            "-c:v", "copy",
+            "-c:a", "copy",
+            "-c:s", "mov_text",
+            "-metadata:s:s:0", "language=kor",
+            "-y",
+            output_path,
+        ]
+
+        try:
+            proc = await asyncio.create_subprocess_exec(
+                *cmd,
+                stdout=asyncio.subprocess.PIPE,
+                stderr=asyncio.subprocess.PIPE,
+            )
+            stdout, stderr = await proc.communicate()
+
+            if proc.returncode != 0:
+                logger.warning(
+                    "Soft subtitle embed failed",
+                    video=video_path,
+                    stderr=stderr.decode()[:300],
+                )
+                return False
+
+            logger.info("Soft subtitle embed succeeded", output=output_path)
+            return True
+        except Exception as e:
+            logger.warning("Soft subtitle embed exception", error=str(e))
+            return False
 
     async def get_duration(self, file_path: str) -> Optional[float]:
         """Get video duration in seconds using ffprobe.
@@ -595,7 +671,13 @@ class FFmpegService:
                         logger.error("Failed to overlay audio")
                         return False
 
-                    # Only burn subtitles if file exists and has content
+                    # ── 자막 처리 3단계 fallback chain ──────────────────────
+                    # 1. hardcoded burn  (subtitles= 필터로 픽셀에 직접 렌더링)
+                    # 2. soft embed      (mov_text 트랙으로 MP4 안에 삽입, 플레이어에서 토글 가능)
+                    # 3. no subtitles    (SRT 파일은 result 폴더에 별도 보관됨)
+                    # ────────────────────────────────────────────────────────
+                    import shutil as _shutil
+
                     subs_file = Path(subtitles_path) if subtitles_path else None
                     has_subtitles = (
                         subs_file is not None
@@ -604,22 +686,37 @@ class FFmpegService:
                     )
 
                     if has_subtitles:
-                        logger.info("Burning subtitles")
-                        success = await self.burn_subtitles(
+                        # Step 1: hardcoded burn
+                        logger.info("Burning subtitles (hardcoded)")
+                        burn_ok = await self.burn_subtitles(
                             audio_path,
                             subtitles_path,
                             output_path,
                             font_path=font_path,
                         )
-                        if not success:
-                            # 자막 번 실패 시 자막 없이 영상 완성 (SRT 파일은 따로 있음)
-                            logger.warning("Subtitle burn failed — continuing without burned-in subtitles")
-                            import shutil
-                            shutil.copy2(audio_path, output_path)
+
+                        if burn_ok:
+                            logger.info("Subtitle burn succeeded")
+                        else:
+                            # Step 2: soft embed fallback
+                            logger.warning(
+                                "Subtitle burn failed — trying soft embed (mov_text)"
+                            )
+                            soft_ok = await self.embed_subtitles_soft(
+                                audio_path,
+                                subtitles_path,
+                                output_path,
+                            )
+
+                            if not soft_ok:
+                                # Step 3: no subtitles
+                                logger.warning(
+                                    "Soft embed also failed — producing video without subtitles"
+                                )
+                                _shutil.copy2(audio_path, output_path)
                     else:
                         logger.warning("Subtitles file empty or missing, skipping burn")
-                        import shutil
-                        shutil.copy2(audio_path, output_path)
+                        _shutil.copy2(audio_path, output_path)
 
                     logger.info("Draft video creation completed", output=output_path)
                     return True
