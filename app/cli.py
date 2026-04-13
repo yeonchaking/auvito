@@ -21,6 +21,7 @@ from rich import box
 
 from app.main import create_app
 from app.domain.enums import ProjectStatus, StageStatus, ApprovalStatus
+from app.utils import user_prefs
 
 app = typer.Typer(help="YouTube content production pipeline")
 console = Console()
@@ -45,6 +46,27 @@ STAGE_LABELS = {
     "render"   : "영상 렌더링",
     "thumbnail": "썸네일 제작",
 }
+
+# ── 카테고리 목록 ─────────────────────────────────────────────────────────────
+NICHE_CHOICES = [
+    ("1", "역사"),
+    ("2", "과학"),
+    ("3", "미스터리"),
+    ("4", "요리"),
+    ("5", "여행"),
+    ("6", "IT / 테크"),
+    ("7", "경제 / 재테크"),
+    ("8", "건강 / 운동"),
+    ("9", "자기계발"),
+    ("0", "직접 입력"),
+]
+
+# ── 영상 길이 선택지 ──────────────────────────────────────────────────────────
+DURATION_CHOICES = [
+    ("1", "1분  — 쇼츠 (60초)", 60),
+    ("2", "3분  — 숏폼 (180초)", 180),
+    ("3", "5분  — 일반 (300초)", 300),
+]
 
 # ── 에러 안내 ─────────────────────────────────────────────────────────────────
 
@@ -116,15 +138,69 @@ def new():
         console.print("[red]주제를 입력해주세요.[/red]")
         topic = typer.prompt("📌 어떤 주제로 영상을 만들까요?").strip()
 
-    # ── 질문 2: 채널 이름 ─────────────────────────────────────────
-    channel = typer.prompt("📺 채널 이름은 무엇인가요?", default="My Channel").strip()
+    # ── 질문 2: 채널 이름 (이전 값 기억) ─────────────────────────
+    saved_channel = user_prefs.get_channel_name()
+    if saved_channel:
+        console.print(f"[dim]이전 채널: {saved_channel}[/dim]")
+        channel_raw = typer.prompt(
+            "📺 채널 이름은 무엇인가요?", default=saved_channel
+        ).strip()
+    else:
+        channel_raw = typer.prompt(
+            "📺 채널 이름은 무엇인가요?", default="My Channel"
+        ).strip()
+    channel = channel_raw or saved_channel or "My Channel"
+    user_prefs.set_channel_name(channel)
 
-    # ── 질문 3: 카테고리 ──────────────────────────────────────────
-    console.print("[dim]예: 역사, 과학, 미스터리, 요리, 여행, IT, 경제 ...[/dim]")
-    niche = typer.prompt("🎯 카테고리를 알려주세요", default="General").strip()
+    # ── 질문 3: 카테고리 픽커 ─────────────────────────────────────
+    saved_niche = user_prefs.get_last_niche()
+    console.print()
+    console.print("[bold]카테고리를 선택해주세요:[/bold]")
+    for key, label in NICHE_CHOICES:
+        marker = " [dim](이전)[/dim]" if label == saved_niche else ""
+        console.print(f"  [{key}] {label}{marker}")
+    console.print()
 
-    # 영상 길이는 1분(60초) 고정 — 쇼츠
-    duration = 60
+    while True:
+        niche_key = typer.prompt(
+            "번호를 입력하세요",
+            default="0" if not saved_niche else next(
+                (k for k, v in NICHE_CHOICES if v == saved_niche), "0"
+            ),
+        ).strip()
+        if niche_key == "0":
+            niche = typer.prompt("직접 입력", default=saved_niche or "General").strip()
+            break
+        matched = next((v for k, v in NICHE_CHOICES if k == niche_key), None)
+        if matched:
+            niche = matched
+            break
+        console.print("[red]1~9 또는 0 중 하나를 입력해주세요.[/red]")
+
+    user_prefs.set_last_niche(niche)
+
+    # ── 질문 4: 영상 길이 ─────────────────────────────────────────
+    saved_dur = user_prefs.get_last_duration() or 60
+    console.print()
+    console.print("[bold]영상 길이를 선택해주세요:[/bold]")
+    for key, label, _ in DURATION_CHOICES:
+        marker = " [dim](이전)[/dim]" if _ == saved_dur else ""
+        console.print(f"  [{key}] {label}{marker}")
+    console.print()
+
+    while True:
+        dur_key = typer.prompt(
+            "번호를 입력하세요",
+            default=next((k for k, _, s in DURATION_CHOICES if s == saved_dur), "1"),
+        ).strip()
+        matched_dur = next((s for k, _, s in DURATION_CHOICES if k == dur_key), None)
+        if matched_dur:
+            duration = matched_dur
+            dur_label = next(l for k, l, s in DURATION_CHOICES if s == matched_dur)
+            break
+        console.print("[red]1, 2, 3 중 하나를 입력해주세요.[/red]")
+
+    user_prefs.set_last_duration(duration)
 
     # ── 확인 ──────────────────────────────────────────────────────
     console.print()
@@ -132,7 +208,7 @@ def new():
     console.print(f"  주제    : [cyan]{topic}[/cyan]")
     console.print(f"  채널    : [cyan]{channel}[/cyan]")
     console.print(f"  카테고리: [cyan]{niche}[/cyan]")
-    console.print(f"  길이    : [cyan]1분 쇼츠 (고정)[/cyan]")
+    console.print(f"  길이    : [cyan]{dur_label.strip()}[/cyan]")
     console.print()
 
     ok = typer.confirm("✅ 이대로 프로젝트를 생성할까요?", default=True)
