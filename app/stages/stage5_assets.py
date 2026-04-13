@@ -24,10 +24,27 @@ from app.utils.logger import get_logger
 
 logger = get_logger(__name__)
 
-# Rate limit delay between image generation requests (free tier = 1 image/min).
-# Set IMAGE_RATE_LIMIT_SEC=0 via environment to disable for paid-tier accounts.
-import os as _os
-IMAGE_RATE_LIMIT_SEC: float = float(_os.environ.get("IMAGE_RATE_LIMIT_SEC", "65"))
+
+def _resolve_rate_limit() -> float:
+    """Resolve image rate limit from config YAML → env var → default (65s).
+
+    Priority:
+    1. IMAGE_RATE_LIMIT_SEC environment variable (explicit override)
+    2. config/default.yaml  image.rate_limit_sec
+    3. Hardcoded fallback: 65 seconds (OpenAI free-tier safe default)
+    """
+    import os as _os
+    if "IMAGE_RATE_LIMIT_SEC" in _os.environ:
+        return float(_os.environ["IMAGE_RATE_LIMIT_SEC"])
+    try:
+        from app.settings import get_config
+        cfg = get_config()
+        return float(cfg.get("image", {}).get("rate_limit_sec", 65))
+    except Exception:
+        return 65.0
+
+
+IMAGE_RATE_LIMIT_SEC: float = _resolve_rate_limit()
 
 
 class AssetStageInput:

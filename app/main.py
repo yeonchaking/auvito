@@ -15,6 +15,14 @@ class AppContainer:
         """Initialize container."""
         self.settings, self.config = load_settings()
 
+        # Set up logging early — JSON logs go to file, terminal shows WARNING+ only
+        from app.utils.logging_setup import setup_logging
+        import os as _os
+        setup_logging(
+            workspace_root=self.settings.workspace_root,
+            level=_os.environ.get("LOG_LEVEL", "INFO"),
+        )
+
         # Initialize database
         db_path = self.settings.db_path
         Path(db_path).parent.mkdir(parents=True, exist_ok=True)

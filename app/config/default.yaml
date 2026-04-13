@@ -21,6 +21,9 @@ stt:
 image:
   provider: openai
   model: gpt-image-1.5
+  # Rate limit between requests (seconds). Free tier = 1 image/min → 65s.
+  # Set to 0 for paid-tier accounts (overridable via IMAGE_RATE_LIMIT_SEC env var).
+  rate_limit_sec: 65
 
 video:
   provider: openai
@@ -34,6 +37,10 @@ render:
   audio_codec: aac
   default_motion: ken_burns_slow
   default_transition: crossfade
+  subtitle_font_size: 32
+  # Subtitle burn strategy: "hardcoded" | "soft" | "none"
+  # Pipeline always tries hardcoded first, then falls back automatically.
+  subtitle_preferred: hardcoded
 
 thumbnail:
   width: 1280
